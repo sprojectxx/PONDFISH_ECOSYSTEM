@@ -1,0 +1,483 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum FreshnessState {
+  GREEN
+  GREY
+  YELLOW
+  RED
+}
+
+enum InventoryChangeType {
+  RECEIVING
+  BOOKING_RESERVATION
+  BOOKING_RELEASE
+  SALE
+  ADJUSTMENT
+}
+
+enum CreditLedgerType {
+  PURCHASE
+  DEBIT_BOOKING
+  DEBIT_BILL
+  CREDIT_REFUND
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  EXPIRED
+}
+
+enum BillStatus {
+  PENDING
+  EXTRACTED
+  MANUALLY_VERIFIED
+  PROCESSED
+  REJECTED
+}
+
+enum PaymentMethod {
+  CASH
+  RAZORPAY
+  SUBSCRIPTION_ONLY
+}
+
+enum JourneyStatus {
+  DRAFT
+  LIVE
+  STOPPED
+  CANCELLED
+}
+
+enum ActorType {
+  CUSTOMER
+  WORKER
+  ADMIN
+  SYSTEM
+}
+
+model Customer {
+  id            String   @id @default(uuid()) @db.Uuid
+  mobileNumber  String   @unique @map("mobile_number")
+  name          String?
+  age           Int?
+  area          String?
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  subscriptions Subscription[]
+  bookings      Booking[]
+  bills         Bill[]
+  transactions  Transaction[]
+  notifications Notification[]
+
+  @@map("customers")
+}
+
+model Worker {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  name         String
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  transactions Transaction[]
+
+  @@map("workers")
+}
+
+model Admin {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  name         String
+  isSuperAdmin Boolean  @default(false) @map("is_super_admin")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("admins")
+}
+
+model Category {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String
+  slug         String   @unique
+  displayOrder Int      @default(0) @map("display_order")
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  fish Fish[]
+
+  @@map("categories")
+}
+
+model Fish {
+  id                String         @id @default(uuid()) @db.Uuid
+  categoryId        String         @map("category_id") @db.Uuid
+  name              String
+  description       String?
+  imageUrl          String?        @map("image_url")
+  unitPrice         Float          @map("unit_price")
+  physicalAvailable Boolean        @default(true) @map("physical_available")
+  onlineBookable    Boolean        @default(false) @map("online_bookable")
+  freshnessState    FreshnessState @default(GREEN) @map("freshness_state")
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
+
+  category         Category          @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  freshnessRules   FreshnessRule[]
+  discounts        Discount[]
+  inventoryBatches InventoryBatch[]
+  inventoryLedger  InventoryLedger[]
+  bookingItems     BookingItem[]
+  transactionItems TransactionItem[]
+
+  @@index([categoryId])
+  @@index([onlineBookable])
+  @@map("fish")
+}
+
+model FreshnessRule {
+  id             String         @id @default(uuid()) @db.Uuid
+  fishId         String         @map("fish_id") @db.Uuid
+  freshnessState FreshnessState @map("freshness_state")
+  hoursThreshold Int            @map("hours_threshold")
+  ruleNotes      String?        @map("rule_notes")
+  createdAt      DateTime       @default(now()) @map("created_at")
+
+  fish Fish @relation(fields: [fishId], references: [id], onDelete: Cascade)
+
+  @@index([fishId])
+  @@map("freshness_rules")
+}
+
+model Discount {
+  id                 String   @id @default(uuid()) @db.Uuid
+  fishId             String?  @map("fish_id") @db.Uuid
+  discountCode       String   @unique @map("discount_code")
+  discountPercent    Float?   @map("discount_percent")
+  flatDiscountAmount Float?   @map("flat_discount_amount")
+  startsAt           DateTime @map("starts_at")
+  expiresAt          DateTime @map("expires_at")
+  active             Boolean  @default(true)
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  fish Fish? @relation(fields: [fishId], references: [id], onDelete: SetNull)
+
+  @@index([startsAt, expiresAt])
+  @@map("discounts")
+}
+
+model InventoryBatch {
+  id           String   @id @default(uuid()) @db.Uuid
+  fishId       String   @map("fish_id") @db.Uuid
+  batchCode    String   @map("batch_code")
+  receivedQty  Float    @map("received_qty")
+  physicalQty  Float    @map("physical_qty")
+  reservedQty  Float    @default(0) @map("reserved_qty")
+  availableQty Float    @map("available_qty")
+  receivedAt   DateTime @default(now()) @map("received_at")
+  expiryAt     DateTime @map("expiry_at")
+
+  fish            Fish              @relation(fields: [fishId], references: [id], onDelete: Cascade)
+  inventoryLedger InventoryLedger[]
+
+  @@index([fishId])
+  @@index([expiryAt])
+  @@map("inventory_batches")
+}
+
+model InventoryLedger {
+  id             String              @id @default(uuid()) @db.Uuid
+  fishId         String              @map("fish_id") @db.Uuid
+  batchId        String?             @map("batch_id") @db.Uuid
+  changeType     InventoryChangeType @map("change_type")
+  quantityChange Float               @map("quantity_change")
+  resultingQty   Float               @map("resulting_qty")
+  referenceId    String?             @map("reference_id")
+  createdAt      DateTime            @default(now()) @map("created_at")
+
+  fish  Fish            @relation(fields: [fishId], references: [id], onDelete: Cascade)
+  batch InventoryBatch? @relation(fields: [batchId], references: [id], onDelete: SetNull)
+
+  @@index([fishId, batchId])
+  @@map("inventory_ledger")
+}
+
+model SubscriptionPlan {
+  id               String   @id @default(uuid()) @db.Uuid
+  title            String
+  price            Float
+  creditAmount     Float    @map("credit_amount")
+  weeklyQtyLimitKg Float    @map("weekly_qty_limit_kg")
+  validityDays     Int      @map("validity_days")
+  active           Boolean  @default(true)
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  subscriptions Subscription[]
+
+  @@map("subscription_plans")
+}
+
+model Subscription {
+  id             String    @id @default(uuid()) @db.Uuid
+  customerId     String    @map("customer_id") @db.Uuid
+  planId         String    @map("plan_id") @db.Uuid
+  creditBalance  Float     @map("credit_balance")
+  weeklyQtyUsed  Float     @default(0) @map("weekly_qty_used")
+  startsAt       DateTime  @default(now()) @map("starts_at")
+  expiresAt      DateTime  @map("expires_at")
+  status         String    @default("ACTIVE")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  customer      Customer                 @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  plan          SubscriptionPlan         @relation(fields: [planId], references: [id], onDelete: Restrict)
+  creditLedgers SubscriptionCreditLedger[]
+
+  @@index([customerId])
+  @@map("customer_subscriptions")
+}
+
+model SubscriptionCreditLedger {
+  id               String           @id @default(uuid()) @db.Uuid
+  subscriptionId   String           @map("subscription_id") @db.Uuid
+  transactionId    String?          @map("transaction_id") @db.Uuid
+  bookingId        String?          @map("booking_id") @db.Uuid
+  type             CreditLedgerType
+  amount           Float
+  resultingBalance Float            @map("resulting_balance")
+  createdAt        DateTime         @default(now()) @map("created_at")
+
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([subscriptionId])
+  @@map("subscription_credit_ledger")
+}
+
+model Booking {
+  id            String        @id @default(uuid()) @db.Uuid
+  customerId    String        @map("customer_id") @db.Uuid
+  bookingCode   String        @unique @map("booking_code")
+  qrCodeData    String        @map("qr_code_data")
+  totalAmount   Float         @map("total_amount")
+  subCreditUsed Float         @default(0) @map("sub_credit_used")
+  razorpayPaid  Float         @default(0) @map("razorpay_paid")
+  status        BookingStatus @default(PENDING)
+  expiresAt     DateTime      @map("expires_at")
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  customer     Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  bookingItems BookingItem[]
+  transactions Transaction[]
+  payments     Payment[]
+
+  @@index([customerId, status])
+  @@map("bookings")
+}
+
+model BookingItem {
+  id         String   @id @default(uuid()) @db.Uuid
+  bookingId  String   @map("booking_id") @db.Uuid
+  fishId     String   @map("fish_id") @db.Uuid
+  quantityKg Float    @map("quantity_kg")
+  unitPrice  Float    @map("unit_price")
+  subtotal   Float
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  fish    Fish    @relation(fields: [fishId], references: [id], onDelete: Restrict)
+
+  @@index([bookingId])
+  @@map("booking_items")
+}
+
+model Bill {
+  id                 String     @id @default(uuid()) @db.Uuid
+  customerId         String     @map("customer_id") @db.Uuid
+  billNumber         String?    @map("bill_number")
+  imageUrl           String     @map("image_url")
+  extractedText      String?    @map("extracted_text")
+  aiConfidenceScore  Float?     @map("ai_confidence_score")
+  manualBillId       String?    @map("manual_bill_id")
+  status             BillStatus @default(PENDING)
+  createdAt          DateTime   @default(now()) @map("created_at")
+
+  customer        Customer          @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  extractionLogs  AIExtractionLog[]
+  transactions    Transaction[]
+
+  @@index([manualBillId])
+  @@map("bills")
+}
+
+model AIExtractionLog {
+  id                 String   @id @default(uuid()) @db.Uuid
+  billId             String   @map("bill_id") @db.Uuid
+  rawResponse        String   @map("raw_response")
+  confidenceScore    Float    @map("confidence_score")
+  extractionDuration Int      @map("extraction_duration")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  bill Bill @relation(fields: [billId], references: [id], onDelete: Cascade)
+
+  @@index([billId])
+  @@map("ai_extraction_logs")
+}
+
+model Transaction {
+  id                 String        @id @default(uuid()) @db.Uuid
+  transactionNumber  String        @unique @map("transaction_number")
+  billId             String?       @map("bill_id") @db.Uuid
+  bookingId          String?       @map("booking_id") @db.Uuid
+  customerId         String        @map("customer_id") @db.Uuid
+  workerId           String?       @map("worker_id") @db.Uuid
+  totalBillAmount    Float         @map("total_bill_amount")
+  subQtyCoveredKg    Float         @default(0) @map("sub_qty_covered_kg")
+  subCreditUsed      Float         @default(0) @map("sub_credit_used")
+  extraAmountPayable Float         @default(0) @map("extra_amount_payable")
+  razorpayGatewayFee Float         @default(0) @map("razorpay_gateway_fee")
+  gstOnFee18         Float         @default(0) @map("gst_on_fee_18")
+  finalPaidAmount    Float         @map("final_paid_amount")
+  paymentMethod      PaymentMethod @map("payment_method")
+  status             String        @default("COMPLETED")
+  createdAt          DateTime      @default(now()) @map("created_at")
+
+  bill             Bill?             @relation(fields: [billId], references: [id], onDelete: SetNull)
+  booking          Booking?          @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  customer         Customer          @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  worker           Worker?           @relation(fields: [workerId], references: [id], onDelete: SetNull)
+  transactionItems TransactionItem[]
+  payments         Payment[]
+
+  @@index([billId])
+  @@index([bookingId])
+  @@index([customerId])
+  @@map("transactions")
+}
+
+model TransactionItem {
+  id            String   @id @default(uuid()) @db.Uuid
+  transactionId String   @map("transaction_id") @db.Uuid
+  fishId        String   @map("fish_id") @db.Uuid
+  quantityKg    Float    @map("quantity_kg")
+  unitPrice     Float    @map("unit_price")
+  subtotal      Float
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  fish        Fish        @relation(fields: [fishId], references: [id], onDelete: Restrict)
+
+  @@index([transactionId])
+  @@map("transaction_items")
+}
+
+model Payment {
+  id                String   @id @default(uuid()) @db.Uuid
+  transactionId     String?  @map("transaction_id") @db.Uuid
+  bookingId         String?  @map("booking_id") @db.Uuid
+  razorpayOrderId   String   @unique @map("razorpay_order_id")
+  razorpayPaymentId String?  @unique @map("razorpay_payment_id")
+  razorpaySignature String?  @map("razorpay_signature")
+  amount            Float
+  method            String
+  status            String   @default("SUCCESS")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  transaction Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+  booking     Booking?     @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+
+  @@map("payments")
+}
+
+model GPSJourney {
+  id                  String        @id @default(uuid()) @db.Uuid
+  truckNumber         String        @map("truck_number")
+  driverName          String        @map("driver_name")
+  status              JourneyStatus @default(DRAFT)
+  publishedToCustomer Boolean       @default(false) @map("published_to_customer")
+  startedAt           DateTime?     @map("started_at")
+  endedAt             DateTime?     @map("ended_at")
+  createdAt           DateTime      @default(now()) @map("created_at")
+
+  positions GPSPosition[]
+
+  @@index([status])
+  @@map("gps_journeys")
+}
+
+model GPSPosition {
+  id         String   @id @default(uuid()) @db.Uuid
+  journeyId  String   @map("journey_id") @db.Uuid
+  latitude   Float
+  longitude  Float
+  speed      Float?
+  heading    Float?
+  recordedAt DateTime @default(now()) @map("recorded_at")
+
+  journey GPSJourney @relation(fields: [journeyId], references: [id], onDelete: Cascade)
+
+  @@index([journeyId, recordedAt])
+  @@map("gps_positions")
+}
+
+model Notification {
+  id         String   @id @default(uuid()) @db.Uuid
+  customerId String   @map("customer_id") @db.Uuid
+  title      String
+  message    String
+  type       String
+  read       Boolean  @default(false)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId, read])
+  @@map("notifications")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  actorType  ActorType @map("actor_type")
+  actorId    String   @map("actor_id")
+  action     String
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id")
+  payload    String   @db.Text
+  timestamp  DateTime @default(now())
+
+  @@index([actorType, actorId])
+  @@index([entityType, entityId])
+  @@map("audit_logs")
+}
+
+model RealtimeEvent {
+  id        String   @id @default(uuid()) @db.Uuid
+  eventType String   @map("event_type")
+  payload   String   @db.Text
+  emittedAt DateTime @default(now()) @map("emitted_at")
+
+  @@index([eventType, emittedAt])
+  @@map("realtime_events")
+}
+
+model Setting {
+  id        String   @id @default(uuid()) @db.Uuid
+  key       String   @unique
+  value     String   @db.Text
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("settings")
+}

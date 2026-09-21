@@ -1,0 +1,21 @@
+{
+  "name": "customer-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Customer Native React Native Mobile Application for PondFish Ecosystem",
+  "scripts": {
+    "start": "react-native start",
+    "android": "react-native run-android",
+    "ios": "react-native run-ios",
+    "test": "jest"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-native": "^0.73.4"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.55",
+    "@types/react-native": "^0.73.0",
+    "typescript": "^5.3.3"
+  }
+}

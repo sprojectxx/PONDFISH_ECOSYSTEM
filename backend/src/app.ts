@@ -4,6 +4,10 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { errorHandler } from './middleware/errorHandler';
 import { sendSuccess } from './utils/response';
+import publicRoutes from './routes/publicRoutes';
+import customerRoutes from './routes/customerRoutes';
+import workerRoutes from './routes/workerRoutes';
+import adminRoutes from './routes/adminRoutes';
 
 const app = express();
 
@@ -28,6 +32,12 @@ const publicLimiter = rateLimit({
   },
 });
 app.use('/api/v1/public', publicLimiter);
+
+// API Routes
+app.use('/api/v1/public', publicRoutes);
+app.use('/api/v1/customer', customerRoutes);
+app.use('/api/v1/worker', workerRoutes);
+app.use('/api/v1/admin', adminRoutes);
 
 // Base Health Check
 app.get('/health', (_req, res) => {

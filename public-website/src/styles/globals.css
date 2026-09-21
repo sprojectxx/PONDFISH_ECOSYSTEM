@@ -1,0 +1,132 @@
+:root {
+  --primary-deep-aqua: #0F4C81;
+  --primary-fresh-teal: #00A896;
+  --primary-ocean-blue: #028090;
+  --accent-coral: #E76F51;
+  --accent-gold: #F4A261;
+  --bg-light: #F8FAFC;
+  --text-dark: #1E293B;
+  --text-muted: #64748B;
+  --badge-green: #10B981;
+  --badge-grey: #6B7280;
+  --badge-yellow: #F59E0B;
+  --badge-red: #EF4444;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+body {
+  background-color: var(--bg-light);
+  color: var(--text-dark);
+  line-height: 1.6;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.header {
+  background-color: var(--primary-deep-aqua);
+  color: #fff;
+  padding: 1rem 2rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.logo {
+  font-size: 1.5rem;
+  font-weight: 800;
+  letter-spacing: 1px;
+}
+
+.nav-links {
+  display: flex;
+  gap: 1.5rem;
+  list-style: none;
+}
+
+.nav-links a:hover {
+  color: var(--primary-fresh-teal);
+}
+
+.hero {
+  background: linear-gradient(135deg, var(--primary-deep-aqua) 0%, var(--primary-ocean-blue) 100%);
+  color: #fff;
+  padding: 4rem 2rem;
+  text-align: center;
+}
+
+.hero h1 {
+  font-size: 2.8rem;
+  margin-bottom: 1rem;
+}
+
+.hero p {
+  font-size: 1.2rem;
+  margin-bottom: 2rem;
+  opacity: 0.9;
+}
+
+.btn-primary {
+  background-color: var(--primary-fresh-teal);
+  color: #fff;
+  padding: 0.8rem 1.8rem;
+  border-radius: 8px;
+  font-weight: 600;
+  display: inline-block;
+  border: none;
+  cursor: pointer;
+}
+
+.btn-primary:hover {
+  opacity: 0.9;
+}
+
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+}
+
+.grid-3 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1.5rem;
+}
+
+.card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 1.5rem;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  border: 1px solid #E2E8F0;
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.25rem 0.6rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.badge-green { background-color: var(--badge-green); }
+.badge-grey { background-color: var(--badge-grey); }
+.badge-yellow { background-color: var(--badge-yellow); }
+.badge-red { background-color: var(--badge-red); }
+
+.footer {
+  background-color: #0F172A;
+  color: #94A3B8;
+  padding: 2rem;
+  text-align: center;
+  margin-top: 4rem;
+}

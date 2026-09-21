@@ -356,7 +356,7 @@ export default function App() {
       {activeCelebration && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(3, 7, 18, 0.85)', backdropFilter: 'blur(16px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, animation: 'fadeIn 0.3s ease-out' }}>
           
-          <div style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', border: '3px solid #06b6d4', boxShadow: '0 0 50px rgba(6, 182, 212, 0.4)', borderRadius: '28px', padding: '40px', maxWidth: '650px', width: '90%', textCenter: 'center', position: 'relative' }}>
+          <div style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', border: '3px solid #06b6d4', boxShadow: '0 0 50px rgba(6, 182, 212, 0.4)', borderRadius: '28px', padding: '40px', maxWidth: '650px', width: '90%', textAlign: 'center', position: 'relative' }}>
             
             <div style={{ display: 'inline-flex', background: 'linear-gradient(135deg, #10b981, #059669)', color: '#fff', padding: '10px 24px', borderRadius: '30px', fontWeight: 800, fontSize: '14px', textTransform: 'uppercase', letterSpacing: '2px', marginBottom: '20px' }}>
               🎉 SUCCESSFUL CHECKOUT

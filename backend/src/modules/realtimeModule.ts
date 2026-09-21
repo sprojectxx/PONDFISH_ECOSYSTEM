@@ -21,7 +21,7 @@ export class RealtimeModule {
       totalBillAmount: transaction.totalBillAmount,
       finalPaidAmount: transaction.finalPaidAmount,
       paymentMethod: transaction.paymentMethod,
-      items: transaction.transactionItems.map((item) => ({
+      items: transaction.transactionItems.map((item: any) => ({
         fishName: item.fish.name,
         quantityKg: item.quantityKg,
         unitPrice: item.unitPrice,

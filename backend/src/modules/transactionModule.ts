@@ -1,5 +1,5 @@
 import { prisma } from '../prismaClient';
-import { PaymentMethod, InventoryChangeType } from '@prisma/client';
+import { PaymentMethod, InventoryChangeType, Prisma } from '@prisma/client';
 import { DomainError } from '../middleware/errorHandler';
 
 export class TransactionModule {
@@ -36,7 +36,7 @@ export class TransactionModule {
     paymentMethod: PaymentMethod;
     useSubscriptionCredit?: boolean;
   }) {
-    return await prisma.$transaction(async (tx) => {
+    return await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       let totalBillAmount = 0.0;
       const transactionItemsToCreate: Array<{ fishId: string; quantityKg: number; unitPrice: number; subtotal: number }> = [];
 

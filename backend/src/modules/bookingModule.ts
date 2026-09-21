@@ -1,5 +1,5 @@
 import { prisma } from '../prismaClient';
-import { BookingStatus, InventoryChangeType, CreditLedgerType } from '@prisma/client';
+import { BookingStatus, InventoryChangeType, CreditLedgerType, Prisma } from '@prisma/client';
 import { DomainError } from '../middleware/errorHandler';
 
 export class BookingModule {
@@ -8,7 +8,7 @@ export class BookingModule {
     items: Array<{ fishId: string; quantityKg: number }>;
     useSubscriptionCredit?: boolean;
   }) {
-    return await prisma.$transaction(async (tx) => {
+    return await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       let totalAmount = 0.0;
       const bookingItemsToCreate: Array<{ fishId: string; quantityKg: number; unitPrice: number; subtotal: number }> = [];
 
@@ -117,7 +117,7 @@ export class BookingModule {
   }
 
   static async markBookingComplete(bookingId: string, workerId: string) {
-    return await prisma.$transaction(async (tx) => {
+    return await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const booking = await tx.booking.findUnique({
         where: { id: bookingId },
         include: { bookingItems: true },
@@ -184,7 +184,7 @@ export class BookingModule {
 
     let expiredCount = 0;
     for (const booking of expiredPendingBookings) {
-      await prisma.$transaction(async (tx) => {
+      await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
         // Atomic status check prevents double-processing
         const updated = await tx.booking.updateMany({
           where: { id: booking.id, status: BookingStatus.PENDING },

@@ -1,5 +1,5 @@
 import { prisma } from '../prismaClient';
-import { CreditLedgerType } from '@prisma/client';
+import { CreditLedgerType, Prisma } from '@prisma/client';
 import { DomainError } from '../middleware/errorHandler';
 
 export class SubscriptionModule {
@@ -29,7 +29,7 @@ export class SubscriptionModule {
   }
 
   static async purchaseSubscription(customerId: string, planId: string) {
-    return await prisma.$transaction(async (tx) => {
+    return await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const plan = await tx.subscriptionPlan.findUnique({ where: { id: planId } });
       if (!plan || !plan.active) {
         throw new DomainError('ERR_PLAN_NOT_FOUND', 'Subscription plan not active or invalid.', 404);

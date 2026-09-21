@@ -1,5 +1,5 @@
 import { prisma } from '../prismaClient';
-import { InventoryChangeType } from '@prisma/client';
+import { InventoryChangeType, Prisma } from '@prisma/client';
 import { DomainError } from '../middleware/errorHandler';
 
 export class InventoryModule {
@@ -9,7 +9,7 @@ export class InventoryModule {
     receivedQty: number;
     expiryHours?: number;
   }) {
-    return await prisma.$transaction(async (tx) => {
+    return await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const fish = await tx.fish.findUnique({ where: { id: data.fishId } });
       if (!fish) {
         throw new DomainError('ERR_FISH_NOT_FOUND', 'Fish item not found.', 404);

@@ -6,8 +6,8 @@ export class ReportingModule {
       where: { status: 'COMPLETED' },
     });
 
-    const totalRevenue = transactions.reduce((sum, t) => sum + t.finalPaidAmount, 0);
-    const totalGSTCollected = transactions.reduce((sum, t) => sum + t.gstOnFee18, 0);
+    const totalRevenue = transactions.reduce((sum: number, t: any) => sum + t.finalPaidAmount, 0);
+    const totalGSTCollected = transactions.reduce((sum: number, t: any) => sum + t.gstOnFee18, 0);
 
     const bookingStatusCounts = await prisma.booking.groupBy({
       by: ['status'],

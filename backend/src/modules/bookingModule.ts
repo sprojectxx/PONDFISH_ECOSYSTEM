@@ -1,0 +1,254 @@
+import { prisma } from '../prismaClient';
+import { BookingStatus, InventoryChangeType, CreditLedgerType } from '@prisma/client';
+import { DomainError } from '../middleware/errorHandler';
+
+export class BookingModule {
+  static async createBooking(data: {
+    customerId: string;
+    items: Array<{ fishId: string; quantityKg: number }>;
+    useSubscriptionCredit?: boolean;
+  }) {
+    return await prisma.$transaction(async (tx) => {
+      let totalAmount = 0.0;
+      const bookingItemsToCreate: Array<{ fishId: string; quantityKg: number; unitPrice: number; subtotal: number }> = [];
+
+      for (const item of data.items) {
+        const fish = await tx.fish.findUnique({ where: { id: item.fishId } });
+        if (!fish || !fish.onlineBookable) {
+          throw new DomainError('ERR_NOT_ONLINE_BOOKABLE', `Fish item ${fish?.name || item.fishId} is not available for online booking.`, 400);
+        }
+
+        // Check inventory batches for available stock
+        const batches = await tx.inventoryBatch.findMany({
+          where: { fishId: item.fishId, availableQty: { gte: item.quantityKg }, expiryAt: { gt: new Date() } },
+          orderBy: { receivedAt: 'asc' },
+        });
+
+        if (batches.length === 0) {
+          throw new DomainError('ERR_INVENTORY_INSUFFICIENT', `Insufficient stock for ${fish.name}. Requested: ${item.quantityKg}kg.`, 409);
+        }
+
+        const selectedBatch = batches[0];
+        const subtotal = fish.unitPrice * item.quantityKg;
+        totalAmount += subtotal;
+
+        bookingItemsToCreate.push({
+          fishId: fish.id,
+          quantityKg: item.quantityKg,
+          unitPrice: fish.unitPrice,
+          subtotal,
+        });
+
+        // Reserve stock atomically
+        await tx.inventoryBatch.update({
+          where: { id: selectedBatch.id },
+          data: {
+            reservedQty: { increment: item.quantityKg },
+            availableQty: { decrement: item.quantityKg },
+          },
+        });
+
+        await tx.inventoryLedger.create({
+          data: {
+            fishId: fish.id,
+            batchId: selectedBatch.id,
+            changeType: InventoryChangeType.BOOKING_RESERVATION,
+            quantityChange: -item.quantityKg,
+            resultingQty: selectedBatch.availableQty - item.quantityKg,
+            referenceId: 'PENDING_BOOKING',
+          },
+        });
+      }
+
+      // Check subscription credit if requested
+      let subCreditUsed = 0.0;
+      if (data.useSubscriptionCredit) {
+        const sub = await tx.subscription.findFirst({
+          where: { customerId: data.customerId, status: 'ACTIVE', expiresAt: { gt: new Date() } },
+        });
+
+        if (sub && sub.creditBalance > 0) {
+          subCreditUsed = Math.min(totalAmount, sub.creditBalance);
+
+          await tx.subscription.update({
+            where: { id: sub.id },
+            data: {
+              creditBalance: { decrement: subCreditUsed },
+            },
+          });
+
+          await tx.subscriptionCreditLedger.create({
+            data: {
+              subscriptionId: sub.id,
+              type: CreditLedgerType.DEBIT_BOOKING,
+              amount: -subCreditUsed,
+              resultingBalance: sub.creditBalance - subCreditUsed,
+            },
+          });
+        }
+      }
+
+      const bookingCode = 'BK-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+      const qrCodeData = `PONDFISH_BOOKING:${bookingCode}`;
+      // Expiry duration strictly set to 48 elapsed hours from creation
+      const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
+
+      const booking = await tx.booking.create({
+        data: {
+          customerId: data.customerId,
+          bookingCode,
+          qrCodeData,
+          totalAmount,
+          subCreditUsed,
+          razorpayPaid: Math.max(0, totalAmount - subCreditUsed),
+          status: subCreditUsed >= totalAmount ? BookingStatus.CONFIRMED : BookingStatus.PENDING,
+          expiresAt,
+          bookingItems: {
+            create: bookingItemsToCreate,
+          },
+        },
+        include: {
+          bookingItems: { include: { fish: true } },
+        },
+      });
+
+      return booking;
+    });
+  }
+
+  static async markBookingComplete(bookingId: string, workerId: string) {
+    return await prisma.$transaction(async (tx) => {
+      const booking = await tx.booking.findUnique({
+        where: { id: bookingId },
+        include: { bookingItems: true },
+      });
+
+      if (!booking) {
+        throw new DomainError('ERR_BOOKING_NOT_FOUND', 'Booking record not found.', 404);
+      }
+
+      if (booking.status === BookingStatus.EXPIRED) {
+        throw new DomainError('ERR_BOOKING_EXPIRED', 'Cannot complete booking. Booking has expired (48h window passed).', 400);
+      }
+
+      if (booking.status === BookingStatus.COMPLETED) {
+        throw new DomainError('ERR_BOOKING_ALREADY_COMPLETED', 'Booking is already marked complete.', 400);
+      }
+
+      // Decrement physical stock for items
+      for (const item of booking.bookingItems) {
+        const batch = await tx.inventoryBatch.findFirst({
+          where: { fishId: item.fishId, reservedQty: { gte: item.quantityKg } },
+        });
+
+        if (batch) {
+          await tx.inventoryBatch.update({
+            where: { id: batch.id },
+            data: {
+              physicalQty: { decrement: item.quantityKg },
+              reservedQty: { decrement: item.quantityKg },
+            },
+          });
+
+          await tx.inventoryLedger.create({
+            data: {
+              fishId: item.fishId,
+              batchId: batch.id,
+              changeType: InventoryChangeType.SALE,
+              quantityChange: -item.quantityKg,
+              resultingQty: batch.physicalQty - item.quantityKg,
+              referenceId: booking.bookingCode,
+            },
+          });
+        }
+      }
+
+      const updatedBooking = await tx.booking.update({
+        where: { id: booking.id },
+        data: { status: BookingStatus.COMPLETED },
+      });
+
+      return updatedBooking;
+    });
+  }
+
+  // Idempotent 48-Hour Booking Expiry Job Worker
+  static async processExpiredBookings() {
+    const expiredPendingBookings = await prisma.booking.findMany({
+      where: {
+        status: BookingStatus.PENDING,
+        expiresAt: { lt: new Date() },
+      },
+      include: { bookingItems: true },
+    });
+
+    let expiredCount = 0;
+    for (const booking of expiredPendingBookings) {
+      await prisma.$transaction(async (tx) => {
+        // Atomic status check prevents double-processing
+        const updated = await tx.booking.updateMany({
+          where: { id: booking.id, status: BookingStatus.PENDING },
+          data: { status: BookingStatus.EXPIRED },
+        });
+
+        if (updated.count === 0) return;
+
+        // Release reserved inventory
+        for (const item of booking.bookingItems) {
+          const batch = await tx.inventoryBatch.findFirst({
+            where: { fishId: item.fishId, reservedQty: { gte: item.quantityKg } },
+          });
+
+          if (batch) {
+            await tx.inventoryBatch.update({
+              where: { id: batch.id },
+              data: {
+                reservedQty: { decrement: item.quantityKg },
+                availableQty: { increment: item.quantityKg },
+              },
+            });
+
+            await tx.inventoryLedger.create({
+              data: {
+                fishId: item.fishId,
+                batchId: batch.id,
+                changeType: InventoryChangeType.BOOKING_RELEASE,
+                quantityChange: item.quantityKg,
+                resultingQty: batch.availableQty + item.quantityKg,
+                referenceId: `EXPIRY_${booking.bookingCode}`,
+              },
+            });
+          }
+        }
+
+        // Restore subscription credit if used
+        if (booking.subCreditUsed > 0) {
+          const sub = await tx.subscription.findFirst({
+            where: { customerId: booking.customerId, status: 'ACTIVE' },
+          });
+
+          if (sub) {
+            await tx.subscription.update({
+              where: { id: sub.id },
+              data: { creditBalance: { increment: booking.subCreditUsed } },
+            });
+
+            await tx.subscriptionCreditLedger.create({
+              data: {
+                subscriptionId: sub.id,
+                bookingId: booking.id,
+                type: CreditLedgerType.CREDIT_REFUND,
+                amount: booking.subCreditUsed,
+                resultingBalance: sub.creditBalance + booking.subCreditUsed,
+              },
+            });
+          }
+        }
+
+        expiredCount++;
+      });
+    }
+
+    return { processedCount: expiredCount };
+  }
+}

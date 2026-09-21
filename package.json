@@ -1,0 +1,32 @@
+{
+  "name": "pondfish-ecosystem",
+  "version": "1.0.0",
+  "private": true,
+  "description": "PondFish Digital Ecosystem MVP (Single Store + One Truck)",
+  "workspaces": [
+    "backend",
+    "public-website",
+    "customer-app",
+    "worker-portal",
+    "admin-portal",
+    "tv-portal"
+  ],
+  "scripts": {
+    "dev:backend": "npm run dev --workspace=backend",
+    "dev:website": "npm run dev --workspace=public-website",
+    "dev:worker": "npm run dev --workspace=worker-portal",
+    "dev:admin": "npm run dev --workspace=admin-portal",
+    "dev:tv": "npm run dev --workspace=tv-portal",
+    "build:backend": "npm run build --workspace=backend",
+    "build:website": "npm run build --workspace=public-website",
+    "build:worker": "npm run build --workspace=worker-portal",
+    "build:admin": "npm run build --workspace=admin-portal",
+    "build:tv": "npm run build --workspace=tv-portal",
+    "build:all": "npm run build:backend && npm run build:website && npm run build:worker && npm run build:admin && npm run build:tv",
+    "test:backend": "npm run test --workspace=backend",
+    "test:all": "npm run test:backend"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

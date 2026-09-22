@@ -6,4 +6,7 @@ export default defineConfig({
   server: {
     port: 3002,
   },
+  define: {
+    'process.env.VITE_API_BASE_URL': JSON.stringify(process.env.VITE_API_BASE_URL || ''),
+  },
 });

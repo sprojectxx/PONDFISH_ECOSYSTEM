@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-
-const API_BASE_URL = 'http://localhost:5000/api/v1';
+import { getWorkerApiBaseUrl } from './config/apiConfig';
 
 interface FishItem {
   id: string;
@@ -30,6 +29,8 @@ export default function App() {
   const [lastBookingResult, setLastBookingResult] = useState<any>(null);
   const [bookingCompleted, setBookingCompleted] = useState(false);
 
+  const API_BASE_URL = getWorkerApiBaseUrl();
+
   // Fetch Fish Catalogue when authenticated
   useEffect(() => {
     if (token) {
@@ -43,7 +44,7 @@ export default function App() {
         })
         .catch(() => {});
     }
-  }, [token]);
+  }, [token, API_BASE_URL]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -213,7 +214,7 @@ export default function App() {
               <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem' }}>Customer ID / Mobile Number</label>
               <input
                 type="text"
-                placeholder="e.g. UUID or mobile number"
+                placeholder="e.g. Customer UUID or mobile"
                 value={customerId}
                 onChange={(e) => setCustomerId(e.target.value)}
                 style={{ width: '100%', padding: '0.75rem', borderRadius: '6px', border: '1px solid #cbd5e1' }}
@@ -262,10 +263,15 @@ export default function App() {
           {/* Section 2: Booking Pickup Verification */}
           <div style={{ background: '#fff', padding: '2rem', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
             <h3 style={{ color: '#0f4c81', marginBottom: '1rem' }}>Online Booking Pickup Verification</h3>
-            <p style={{ color: '#64748b', fontSize: '0.9rem', marginBottom: '1.5rem' }}>Enter Booking Code (e.g. BK-XXXXXX) or scan QR ticket data to complete customer pickup.</p>
+            <p style={{ color: '#64748b', fontSize: '0.9rem', marginBottom: '0.5rem' }}>
+              Enter Booking Code (e.g. BK-987654) or Booking ID to verify customer pickup.
+            </p>
+            <p style={{ color: '#94a3b8', fontSize: '0.8rem', marginBottom: '1.5rem', fontStyle: 'italic' }}>
+              (Note: Tablet camera hardware QR scanner integration is device hardware dependent.)
+            </p>
 
             <div style={{ marginBottom: '1.5rem' }}>
-              <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem' }}>Booking Code / ID</label>
+              <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem' }}>Manual Booking Code / ID Entry</label>
               <input
                 type="text"
                 placeholder="e.g. BK-987654 or Booking UUID"

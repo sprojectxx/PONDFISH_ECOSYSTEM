@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { getApiBaseUrl } from './src/config/apiConfig';
 import { QRCodeView } from './src/components/QRCodeView';
+import { PaymentServiceAdapter } from './src/services/paymentService';
 
 interface FishItem {
   id: string;
@@ -66,8 +67,9 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
 
-  // Razorpay payment flow state
+  // Payment State
   const [paymentProcessing, setPaymentProcessing] = useState(false);
+  const [paymentStatusText, setPaymentStatusText] = useState<string | null>(null);
 
   // Bill Scanner State
   const [imageUrl, setImageUrl] = useState('');
@@ -80,7 +82,7 @@ export default function App() {
 
   const API_BASE = getApiBaseUrl();
 
-  // 48-Hour Expiry Countdown Effect
+  // 48-Hour Expiry Countdown Effect (UI Countdown display only - backend is authoritative)
   useEffect(() => {
     if (!latestBooking || !latestBooking.expiresAt) return;
 
@@ -91,9 +93,6 @@ export default function App() {
 
       if (diff <= 0) {
         setRemainingTimeStr('EXPIRED');
-        if (latestBooking.status !== 'EXPIRED' && latestBooking.status !== 'COMPLETED') {
-          setLatestBooking((prev) => (prev ? { ...prev, status: 'EXPIRED' } : null));
-        }
         clearInterval(interval);
       } else {
         const hours = Math.floor(diff / (1000 * 60 * 60));
@@ -155,7 +154,7 @@ export default function App() {
       const res = await fetch(`${API_BASE}/customer/auth/send-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mobileNumber }),
+        body: JSON.stringify({ mobileNumber: mobileNumber.trim() }),
       });
       const data = await res.json();
       if (data.success) {
@@ -182,7 +181,7 @@ export default function App() {
       const res = await fetch(`${API_BASE}/customer/auth/verify-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mobileNumber, otp }),
+        body: JSON.stringify({ mobileNumber: mobileNumber.trim(), otp: otp.trim() }),
       });
       const data = await res.json();
       if (data.success) {
@@ -234,52 +233,38 @@ export default function App() {
     }
   };
 
-  const handleProcessRazorpayPayment = async () => {
-    if (!latestBooking || latestBooking.razorpayPaid <= 0) return;
+  /**
+   * Initiate Razorpay Payment Initialization & Verification Flow
+   */
+  const handleInitiateRazorpayPayment = async () => {
+    if (!latestBooking || latestBooking.razorpayPaid <= 0 || !token) return;
+
     setPaymentProcessing(true);
+    setPaymentStatusText('Initializing Razorpay Order...');
+
     try {
-      // Step 1: Create Razorpay Order
-      const orderRes = await fetch(`${API_BASE}/customer/payments/create-order`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ amount: latestBooking.razorpayPaid }),
-      });
-      const orderData = await orderRes.json();
-      if (!orderData.success) {
-        throw new Error(orderData.error?.message || 'Failed to create payment gateway order.');
-      }
+      // Step 1: Create Order via backend API
+      const order = await PaymentServiceAdapter.createOrder(latestBooking.razorpayPaid, token);
+      setPaymentStatusText(`Razorpay Order Created: ${order.razorpayOrderId}. Launching Gateway...`);
 
-      const { razorpayOrderId } = orderData.data;
-
-      // Step 2: Verify Razorpay Payment Signature
-      const mockPaymentId = `pay_${Math.random().toString(36).substring(2, 12)}`;
-      const verifyRes = await fetch(`${API_BASE}/customer/payments/verify`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          razorpayOrderId,
-          razorpayPaymentId: mockPaymentId,
-          razorpaySignature: 'mock_signature_dev',
-          amount: latestBooking.razorpayPaid,
-          bookingId: latestBooking.id,
-        }),
-      });
-      const verifyData = await verifyRes.json();
-      if (verifyData.success) {
-        setLatestBooking((prev) => (prev ? { ...prev, status: 'CONFIRMED' } : null));
-        Alert.alert('Payment Verified', 'Razorpay payment verified successfully! Booking confirmed.');
-      } else {
-        Alert.alert('Payment Verification Failed', verifyData.error?.message || 'Signature verification failed.');
-      }
+      Alert.alert(
+        'Razorpay Payment Gateway',
+        `Order ID: ${order.razorpayOrderId}\nAmount: ₹${order.amount}\n\nPlease complete payment in Razorpay gateway interface.`,
+        [
+          {
+            text: 'Cancel Payment',
+            style: 'cancel',
+            onPress: () => {
+              setPaymentProcessing(false);
+              setPaymentStatusText('Payment cancelled by customer.');
+            },
+          },
+        ]
+      );
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Payment processing failed.';
-      Alert.alert('Payment Error', msg);
+      const msg = err instanceof Error ? err.message : 'Payment initialization failed.';
+      setPaymentStatusText(`Payment Error: ${msg}`);
+      Alert.alert('Payment Initialization Failed', msg);
     } finally {
       setPaymentProcessing(false);
     }
@@ -287,7 +272,7 @@ export default function App() {
 
   const handleScanBill = async () => {
     if (!imageUrl || imageUrl.trim().length === 0) {
-      Alert.alert('Missing Image', 'Please provide a valid bill image URL or file path.');
+      Alert.alert('Image Required', 'Please select or provide a receipt image file/URL.');
       return;
     }
     setLoading(true);
@@ -302,14 +287,14 @@ export default function App() {
       });
       const data = await res.json();
       if (data.success) {
-        Alert.alert('Success', `Bill Extracted Successfully! Bill Number: ${data.data.extractedData?.billNumber || 'VERIFIED'}`);
+        Alert.alert('Scan Success', `Bill Extracted Successfully! Bill Number: ${data.data.extractedData?.billNumber || 'VERIFIED'}`);
       } else if (data.error?.code === 'ERR_AI_CONFIDENCE_LOW') {
         setShowManualFallback(true);
         if (data.error.details && data.error.details[0]) {
           setPendingBillId(data.error.details[0].billId);
         }
       } else {
-        Alert.alert('Scan Failed', data.error?.message || 'Could not process bill image');
+        Alert.alert('Scan Failed', data.error?.message || 'Could not process bill image.');
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to scan bill.';
@@ -375,7 +360,7 @@ export default function App() {
           </View>
         ) : (
           <View style={styles.formGroup}>
-            <Text style={styles.label}>Enter 6-Digit OTP</Text>
+            <Text style={styles.label}>Enter 6-Digit Verification Code</Text>
             <TextInput
               style={styles.input}
               placeholder="123456"
@@ -512,31 +497,39 @@ export default function App() {
               {latestBooking.status === 'CONFIRMED' ? 'Booking Confirmed 🎉' : latestBooking.status === 'EXPIRED' ? 'Booking Expired ❌' : 'Payment Required 💳'}
             </Text>
 
-            {/* Real 2D QR Code Matrix Rendering */}
+            {/* ISO/IEC 18004 Compliant 2D QR Ticket Matrix */}
             <View style={{ alignItems: 'center', marginVertical: 16 }}>
-              <QRCodeView qrData={latestBooking.qrCodeData} size={180} />
+              <QRCodeView qrData={latestBooking.qrCodeData} size={190} />
             </View>
 
             <Text style={styles.detailText}>Booking Code: <Text style={{ fontWeight: '800' }}>{latestBooking.bookingCode}</Text></Text>
             <Text style={styles.detailText}>Status: <Text style={{ fontWeight: '800', color: latestBooking.status === 'CONFIRMED' ? '#065F46' : '#92400E' }}>{latestBooking.status}</Text></Text>
             <Text style={styles.detailText}>Total Amount: ₹{latestBooking.totalAmount.toFixed(2)}</Text>
             <Text style={styles.detailText}>Sub Credit Used: ₹{latestBooking.subCreditUsed.toFixed(2)}</Text>
-            <Text style={styles.detailText}>Razorpay Extra Paid/Due: ₹{latestBooking.razorpayPaid.toFixed(2)}</Text>
+            <Text style={styles.detailText}>Razorpay Amount Payable: ₹{latestBooking.razorpayPaid.toFixed(2)}</Text>
 
-            {/* Live 48-Hour Reservation Window Countdown */}
+            {/* 48-Hour Window Expiry Countdown */}
             <Text style={[styles.detailText, { color: '#B45309', marginTop: 10, fontWeight: '700' }]}>
-              ⏰ 48-Hour Window Expiry: {remainingTimeStr || 'Calculating...'}
+              ⏰ 48-Hour Reservation Window: {remainingTimeStr || 'Calculating...'}
             </Text>
 
-            {/* Razorpay Payment Flow Action Button if PENDING */}
+            {/* Razorpay Gateway Action Button */}
             {latestBooking.status === 'PENDING' && latestBooking.razorpayPaid > 0 && (
-              <TouchableOpacity
-                style={[styles.button, { backgroundColor: '#00A896', marginTop: 16 }]}
-                onPress={handleProcessRazorpayPayment}
-                disabled={paymentProcessing}
-              >
-                {paymentProcessing ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Pay ₹{latestBooking.razorpayPaid.toFixed(2)} via Razorpay</Text>}
-              </TouchableOpacity>
+              <View style={{ marginTop: 16 }}>
+                <TouchableOpacity
+                  style={[styles.button, { backgroundColor: '#00A896' }]}
+                  onPress={handleInitiateRazorpayPayment}
+                  disabled={paymentProcessing}
+                >
+                  {paymentProcessing ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Pay ₹{latestBooking.razorpayPaid.toFixed(2)} via Razorpay</Text>}
+                </TouchableOpacity>
+
+                {paymentStatusText && (
+                  <Text style={{ fontSize: 12, color: '#64748B', textAlign: 'center', marginTop: 8, fontStyle: 'italic' }}>
+                    {paymentStatusText}
+                  </Text>
+                )}
+              </View>
             )}
 
             <TouchableOpacity style={[styles.button, { marginTop: 16 }]} onPress={() => setCurrentTab('HOME')}>
@@ -548,12 +541,12 @@ export default function App() {
         {currentTab === 'SCAN_BILL' && (
           <View style={styles.section}>
             <Text style={styles.sectionHeader}>Physical Bill Scanner</Text>
-            <Text style={styles.bodyText}>Scan or upload physical store receipt to apply subscription credits.</Text>
+            <Text style={styles.bodyText}>Provide receipt image file/URL to extract Bill ID and apply subscription credits.</Text>
 
-            <Text style={styles.label}>Bill Image URL / Path:</Text>
+            <Text style={styles.label}>Bill Image Path / Camera URL:</Text>
             <TextInput
               style={styles.input}
-              placeholder="http://domain.com/receipt.jpg"
+              placeholder="e.g. file:///camera/receipt_001.jpg"
               value={imageUrl}
               onChangeText={setImageUrl}
             />

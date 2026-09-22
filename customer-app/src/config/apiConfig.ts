@@ -1,29 +1,35 @@
 /**
- * Centralized API Configuration for PondFish Customer Application
+ * Centralized API Configuration for PondFish Customer Application (React Native)
  *
- * Supports dynamic environment variables (process.env.EXPO_PUBLIC_API_BASE_URL or process.env.API_BASE_URL)
- * with robust platform-aware fallbacks (10.0.2.2 for Android Emulator, localhost for iOS/Web).
+ * Supports explicit environment variables (process.env.API_BASE_URL or process.env.REACT_APP_API_BASE_URL).
+ * In production mode, an explicit environment setting is required.
+ * In development mode, falls back to local emulator bridge (http://10.0.2.2:5000/api/v1).
  */
 
 declare const process: {
   env: {
-    EXPO_PUBLIC_API_BASE_URL?: string;
     API_BASE_URL?: string;
+    REACT_APP_API_BASE_URL?: string;
     NODE_ENV?: string;
   };
 };
 
 export const getApiBaseUrl = (): string => {
-  if (typeof process !== 'undefined' && process.env) {
-    if (process.env.EXPO_PUBLIC_API_BASE_URL) {
-      return process.env.EXPO_PUBLIC_API_BASE_URL.replace(/\/$/, '');
-    }
-    if (process.env.API_BASE_URL) {
-      return process.env.API_BASE_URL.replace(/\/$/, '');
-    }
+  const envUrl =
+    typeof process !== 'undefined' && process.env
+      ? process.env.API_BASE_URL || process.env.REACT_APP_API_BASE_URL
+      : undefined;
+
+  if (envUrl) {
+    return envUrl.replace(/\/$/, '');
   }
 
-  // Default development fallback URL (Android Emulator localhost bridge)
+  const isProduction = typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'production';
+  if (isProduction) {
+    throw new Error('CONFIG_ERROR: API_BASE_URL environment variable is required in production builds.');
+  }
+
+  // Explicit development fallback URL
   return 'http://10.0.2.2:5000/api/v1';
 };
 

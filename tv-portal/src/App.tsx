@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { 
   Tv, 
@@ -11,76 +11,97 @@ import {
   Volume2, 
   VolumeX, 
   Award,
-  Zap
+  Zap,
+  Wifi,
+  WifiOff
 } from 'lucide-react';
+import { TV_API_CONFIG } from './config/apiConfig';
 
-interface TransactionEvent {
-  transactionId: string;
-  orderId?: string;
-  billId?: string;
-  customerName: string;
-  items: Array<{ name: string; quantityKg: number; price: number }>;
-  totalAmount: number;
-  workerName: string;
-  timestamp: string;
-  paymentMethod: string;
+export interface DisplayTransactionItem {
+  name: string;
+  quantityKg: number;
+  price: number;
+  subtotal: number;
 }
 
-export default function App() {
-  const [socketStatus, setSocketStatus] = useState<'CONNECTED' | 'DISCONNECTED'>('DISCONNECTED');
-  const [activeCelebration, setActiveCelebration] = useState<TransactionEvent | null>(null);
-  const [recentTransactions, setRecentTransactions] = useState<TransactionEvent[]>([
-    {
-      transactionId: 'TXN-DEMO-901',
-      billId: 'BILL-8891',
-      customerName: 'Rajesh Sharma',
-      items: [
-        { name: 'Fresh Rohu Fish', quantityKg: 2.5, price: 550 },
-        { name: 'Catla Fresh Catch', quantityKg: 1.0, price: 280 }
-      ],
-      totalAmount: 830,
-      workerName: 'Sunil Kumar (Store)',
-      timestamp: new Date(Date.now() - 3 * 60 * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      paymentMethod: 'UPI'
-    },
-    {
-      transactionId: 'TXN-DEMO-900',
-      billId: 'BILL-8890',
-      customerName: 'Priya Verma',
-      items: [
-        { name: 'Prem. Tiger Prawns', quantityKg: 1.5, price: 1125 }
-      ],
-      totalAmount: 1125,
-      workerName: 'Truck Delivery Operator',
-      timestamp: new Date(Date.now() - 12 * 60 * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      paymentMethod: 'CASH'
-    }
-  ]);
+export interface DisplayTransaction {
+  transactionId: string;
+  transactionNumber: string;
+  customerName: string;
+  items: DisplayTransactionItem[];
+  totalAmount: number;
+  paymentMethod: string;
+  timestamp: string;
+}
 
-  const [storeStats, setStoreStats] = useState({
-    todayRevenue: 24580,
-    todayOrders: 34,
-    totalKgSold: 86.5
+export const normalizeTransactionEvent = (data: any): DisplayTransaction | null => {
+  if (!data || (!data.transactionId && !data.id)) return null;
+
+  const transactionId = String(data.transactionId || data.id);
+  const transactionNumber = String(data.transactionNumber || data.billId || data.orderId || transactionId.slice(0, 8));
+  const customerName = String(data.customerName || (data.customer ? data.customer.name : 'In-Store Customer'));
+
+  const rawItems = Array.isArray(data.items) ? data.items : [];
+  const items: DisplayTransactionItem[] = rawItems.map((item: any) => {
+    const name = String(item.fishName || item.name || 'Fresh Fish');
+    const quantityKg = Number(item.quantityKg) || 0;
+    const price = Number(item.unitPrice || item.price) || 0;
+    const subtotal = Number(item.subtotal) || (quantityKg * price);
+    return { name, quantityKg, price, subtotal };
   });
 
-  const [truckStatus, setTruckStatus] = useState({
+  const totalAmount = Number(data.finalPaidAmount || data.totalBillAmount || data.totalAmount) || items.reduce((acc, i) => acc + i.subtotal, 0);
+  const paymentMethod = String(data.paymentMethod || 'CASH');
+
+  let formattedTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (data.timestamp) {
+    try {
+      formattedTime = new Date(data.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } catch {
+      // Fallback to current time string on parse error
+    }
+  }
+
+  return {
+    transactionId,
+    transactionNumber,
+    customerName,
+    items,
+    totalAmount,
+    paymentMethod,
+    timestamp: formattedTime,
+  };
+};
+
+export default function App() {
+  const [socketStatus, setSocketStatus] = useState<'CONNECTED' | 'DISCONNECTED' | 'RECONNECTING' | 'CONNECT_ERROR'>('DISCONNECTED');
+  const [activeCelebration, setActiveCelebration] = useState<DisplayTransaction | null>(null);
+  const [recentTransactions, setRecentTransactions] = useState<DisplayTransaction[]>([]);
+
+  const [storeStats, setStoreStats] = useState({
+    todayRevenue: 0,
+    todayOrders: 0,
+    totalKgSold: 0
+  });
+
+  const [truckStatus] = useState({
     name: 'Mobile Delivery Truck #1',
-    driver: 'Ramesh Singh',
-    location: 'Sector 62 Main Market',
+    driver: 'Active Duty Operator',
+    location: 'Sector 62 Main Route',
     status: 'ACTIVE_ROUTE',
-    lat: 28.6271,
-    lng: 77.3726,
+    lat: 16.5062,
+    lng: 80.6480,
     speedKm: 24
   });
 
   const [currentTime, setCurrentTime] = useState(new Date());
   const [soundEnabled, setSoundEnabled] = useState(true);
 
-  const seenIdsRef = useRef<Set<string>>(new Set(['TXN-DEMO-901', 'TXN-DEMO-900']));
+  const seenIdsRef = useRef<Set<string>>(new Set());
   const celebrationTimerRef = useRef<any>(null);
 
-  // Audio synthesis for zero external dependency chime
-  const playChime = () => {
+  // Audio chime synthesis
+  const playChime = useCallback(() => {
     if (!soundEnabled) return;
     try {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
@@ -100,14 +121,13 @@ export default function App() {
         osc.stop(ctx.currentTime + start + duration);
       };
 
-      // Play pleasant 3-note celebration arpeggio
-      playNote(523.25, 0.0, 0.4); // C5
+      playNote(523.25, 0.0, 0.4);  // C5
       playNote(659.25, 0.15, 0.4); // E5
-      playNote(783.99, 0.3, 0.6); // G5
-    } catch (e) {
-      console.warn('Audio synthesis not allowed before user gesture', e);
+      playNote(783.99, 0.3, 0.6);  // G5
+    } catch {
+      // Audio context ignored if browser gesture policy restricts startup autoplay
     }
-  };
+  }, [soundEnabled]);
 
   // Update Clock
   useEffect(() => {
@@ -115,11 +135,13 @@ export default function App() {
     return () => clearInterval(timer);
   }, []);
 
-  // Socket connection
+  // Socket connection lifecycle & TRANSACTION_COMPLETED listener
   useEffect(() => {
-    const socket: Socket = io('http://localhost:3000', {
-      reconnectionAttempts: 10,
-      timeout: 5000
+    const socketUrl = TV_API_CONFIG.socketUrl;
+    const socket: Socket = io(socketUrl, {
+      reconnectionAttempts: TV_API_CONFIG.reconnectionAttempts,
+      timeout: TV_API_CONFIG.timeoutMs,
+      autoConnect: true,
     });
 
     socket.on('connect', () => {
@@ -130,55 +152,107 @@ export default function App() {
       setSocketStatus('DISCONNECTED');
     });
 
-    // Listen to real-time post-commit transaction completed event
-    socket.on('TRANSACTION_COMPLETED', (data: TransactionEvent) => {
-      if (!data || !data.transactionId) return;
+    socket.on('connect_error', () => {
+      setSocketStatus('CONNECT_ERROR');
+    });
 
-      // Client-side deduplication check
-      if (seenIdsRef.current.has(data.transactionId)) {
-        console.log('Duplicate transaction event skipped:', data.transactionId);
+    socket.on('reconnect_attempt', () => {
+      setSocketStatus('RECONNECTING');
+    });
+
+    socket.on('reconnect', () => {
+      setSocketStatus('CONNECTED');
+    });
+
+    // Handle real backend TRANSACTION_COMPLETED event
+    const handleTransactionCompleted = (rawData: any) => {
+      const normalized = normalizeTransactionEvent(rawData);
+      if (!normalized || !normalized.transactionId) return;
+
+      // Duplicate socket event guard
+      if (seenIdsRef.current.has(normalized.transactionId)) {
         return;
       }
+      seenIdsRef.current.add(normalized.transactionId);
 
-      seenIdsRef.current.add(data.transactionId);
-
-      // Trigger Audio Chime
+      // Play audio chime
       playChime();
 
-      // Trigger Celebration Modal
-      setActiveCelebration(data);
+      // Trigger Celebration Overlay Modal
+      setActiveCelebration(normalized);
 
-      // Update local feed & stats
-      setRecentTransactions((prev) => [data, ...prev.slice(0, 7)]);
+      // Update feed and aggregate store metrics
+      const totalKg = normalized.items.reduce((acc, i) => acc + i.quantityKg, 0);
+
+      setRecentTransactions((prev) => [normalized, ...prev.slice(0, 9)]);
       setStoreStats((prev) => ({
-        todayRevenue: prev.todayRevenue + (data.totalAmount || 0),
+        todayRevenue: prev.todayRevenue + normalized.totalAmount,
         todayOrders: prev.todayOrders + 1,
-        totalKgSold: prev.totalKgSold + data.items.reduce((acc, item) => acc + (item.quantityKg || 0), 0)
+        totalKgSold: prev.totalKgSold + totalKg,
       }));
 
-      // Auto-dismiss celebration after 8 seconds
+      // Auto-dismiss celebration modal after 8 seconds
       if (celebrationTimerRef.current) clearTimeout(celebrationTimerRef.current);
       celebrationTimerRef.current = setTimeout(() => {
         setActiveCelebration(null);
       }, 8000);
-    });
+    };
+
+    socket.on('TRANSACTION_COMPLETED', handleTransactionCompleted);
 
     return () => {
+      socket.off('TRANSACTION_COMPLETED', handleTransactionCompleted);
       socket.disconnect();
       if (celebrationTimerRef.current) clearTimeout(celebrationTimerRef.current);
     };
-  }, [soundEnabled]);
+  }, [playChime]);
 
   const dismissCelebration = () => {
     if (celebrationTimerRef.current) clearTimeout(celebrationTimerRef.current);
     setActiveCelebration(null);
   };
 
+  const getStatusBadge = () => {
+    switch (socketStatus) {
+      case 'CONNECTED':
+        return {
+          bg: 'rgba(16, 185, 129, 0.15)',
+          border: '#10b981',
+          dot: '#10b981',
+          text: '#34d399',
+          label: 'LIVE SOCKET ACTIVE',
+          icon: <Wifi style={{ width: '16px', height: '16px', color: '#34d399' }} />
+        };
+      case 'RECONNECTING':
+        return {
+          bg: 'rgba(245, 158, 11, 0.15)',
+          border: '#f59e0b',
+          dot: '#f59e0b',
+          text: '#fbbf24',
+          label: 'RECONNECTING...',
+          icon: <Wifi style={{ width: '16px', height: '16px', color: '#fbbf24' }} />
+        };
+      case 'CONNECT_ERROR':
+      case 'DISCONNECTED':
+      default:
+        return {
+          bg: 'rgba(239, 68, 68, 0.15)',
+          border: '#ef4444',
+          dot: '#ef4444',
+          text: '#f87171',
+          label: 'DISCONNECTED',
+          icon: <WifiOff style={{ width: '16px', height: '16px', color: '#f87171' }} />
+        };
+    }
+  };
+
+  const statusBadge = getStatusBadge();
+
   return (
     <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #030712 0%, #0b132b 50%, #1c2541 100%)', color: '#f9fafb', padding: '24px', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
       
       {/* Top TV Navigation Bar */}
-      <header style={{ display: 'flex', justifyContent: 'space-[#030712]', alignItems: 'center', background: 'rgba(15, 23, 42, 0.8)', padding: '16px 28px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.1)', backdropFilter: 'blur(12px)', marginBottom: '24px' }}>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(15, 23, 42, 0.8)', padding: '16px 28px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.1)', backdropFilter: 'blur(12px)', marginBottom: '24px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <div style={{ background: 'linear-gradient(135deg, #06b6d4, #3b82f6)', padding: '12px', borderRadius: '12px', display: 'flex' }}>
             <Tv style={{ width: '32px', height: '32px', color: '#ffffff' }} />
@@ -193,10 +267,10 @@ export default function App() {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
           {/* Socket Status Indicator */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', borderRadius: '20px', background: socketStatus === 'CONNECTED' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)', border: socketStatus === 'CONNECTED' ? '1px solid #10b981' : '1px solid #ef4444' }}>
-            <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: socketStatus === 'CONNECTED' ? '#10b981' : '#ef4444', boxShadow: socketStatus === 'CONNECTED' ? '0 0 10px #10b981' : 'none' }}></div>
-            <span style={{ fontSize: '13px', fontWeight: 700, color: socketStatus === 'CONNECTED' ? '#34d399' : '#f87171' }}>
-              {socketStatus === 'CONNECTED' ? 'LIVE SYNC ACTIVE' : 'DISCONNECTED'}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', borderRadius: '20px', background: statusBadge.bg, border: `1px solid ${statusBadge.border}` }}>
+            {statusBadge.icon}
+            <span style={{ fontSize: '13px', fontWeight: 700, color: statusBadge.text }}>
+              {statusBadge.label}
             </span>
           </div>
 
@@ -227,13 +301,13 @@ export default function App() {
             
             <div style={{ background: 'rgba(15, 23, 42, 0.7)', padding: '20px', borderRadius: '16px', border: '1px solid rgba(56, 189, 248, 0.2)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                <span style={{ fontSize: '14px', color: '#9ca3af', fontWeight: 600 }}>Today's Sales</span>
+                <span style={{ fontSize: '14px', color: '#9ca3af', fontWeight: 600 }}>Today's Live Sales</span>
                 <TrendingUp style={{ width: '24px', height: '24px', color: '#38bdf8' }} />
               </div>
               <div style={{ fontSize: '32px', fontWeight: 900, color: '#38bdf8' }}>
                 ₹{storeStats.todayRevenue.toLocaleString('en-IN')}
               </div>
-              <div style={{ fontSize: '12px', color: '#34d399', marginTop: '4px' }}>▲ 18.5% vs yesterday</div>
+              <div style={{ fontSize: '12px', color: '#34d399', marginTop: '4px' }}>Authoritative Real-Time Stream</div>
             </div>
 
             <div style={{ background: 'rgba(15, 23, 42, 0.7)', padding: '20px', borderRadius: '16px', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
@@ -244,7 +318,7 @@ export default function App() {
               <div style={{ fontSize: '32px', fontWeight: 900, color: '#34d399' }}>
                 {storeStats.todayOrders} <span style={{ fontSize: '18px', fontWeight: 600 }}>orders</span>
               </div>
-              <div style={{ fontSize: '12px', color: '#9ca3af', marginTop: '4px' }}>In-Store & Mobile Truck</div>
+              <div style={{ fontSize: '12px', color: '#9ca3af', marginTop: '4px' }}>Store #01 Checkout Feed</div>
             </div>
 
             <div style={{ background: 'rgba(15, 23, 42, 0.7)', padding: '20px', borderRadius: '16px', border: '1px solid rgba(245, 158, 11, 0.2)' }}>
@@ -255,7 +329,7 @@ export default function App() {
               <div style={{ fontSize: '32px', fontWeight: 900, color: '#f59e0b' }}>
                 {storeStats.totalKgSold.toFixed(1)} <span style={{ fontSize: '18px', fontWeight: 600 }}>kg</span>
               </div>
-              <div style={{ fontSize: '12px', color: '#38bdf8', marginTop: '4px' }}>100% Guaranteed Fresh</div>
+              <div style={{ fontSize: '12px', color: '#38bdf8', marginTop: '4px' }}>100% Verified Fresh</div>
             </div>
 
           </div>
@@ -265,36 +339,44 @@ export default function App() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
               <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <CheckCircle2 style={{ width: '24px', height: '24px', color: '#34d399' }} />
-                Recent Verified Checkout Feed
+                Real-Time Verified Checkout Feed
               </h2>
               <span style={{ fontSize: '13px', background: 'rgba(56, 189, 248, 0.1)', color: '#38bdf8', padding: '4px 12px', borderRadius: '12px' }}>
-                Auto-Updating Real-Time
+                Socket Event Stream
               </span>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', flex: 1, overflowY: 'auto' }}>
-              {recentTransactions.map((txn, idx) => (
-                <div key={txn.transactionId + idx} style={{ background: idx === 0 ? 'rgba(6, 182, 212, 0.15)' : 'rgba(255, 255, 255, 0.03)', padding: '16px 20px', borderRadius: '14px', border: idx === 0 ? '1px solid #06b6d4' : '1px solid rgba(255, 255, 255, 0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                    <div style={{ background: idx === 0 ? '#06b6d4' : 'rgba(255,255,255,0.1)', width: '44px', height: '44px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, color: '#fff' }}>
-                      #{idx + 1}
-                    </div>
-                    <div>
-                      <div style={{ fontSize: '18px', fontWeight: 700, color: '#fff' }}>{txn.customerName}</div>
-                      <div style={{ fontSize: '13px', color: '#9ca3af', marginTop: '2px' }}>
-                        {txn.billId || txn.orderId} • {txn.workerName} • <span style={{ color: '#38bdf8' }}>{txn.paymentMethod}</span>
+              {recentTransactions.length > 0 ? (
+                recentTransactions.map((txn, idx) => (
+                  <div key={txn.transactionId + idx} style={{ background: idx === 0 ? 'rgba(6, 182, 212, 0.15)' : 'rgba(255, 255, 255, 0.03)', padding: '16px 20px', borderRadius: '14px', border: idx === 0 ? '1px solid #06b6d4' : '1px solid rgba(255, 255, 255, 0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                      <div style={{ background: idx === 0 ? '#06b6d4' : 'rgba(255,255,255,0.1)', width: '44px', height: '44px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, color: '#fff' }}>
+                        #{idx + 1}
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '18px', fontWeight: 700, color: '#fff' }}>{txn.customerName}</div>
+                        <div style={{ fontSize: '13px', color: '#9ca3af', marginTop: '2px' }}>
+                          No. <strong style={{ color: '#38bdf8' }}>{txn.transactionNumber}</strong> • <span style={{ color: '#38bdf8' }}>{txn.paymentMethod}</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: '22px', fontWeight: 900, color: '#34d399' }}>₹{txn.totalAmount.toLocaleString('en-IN')}</div>
-                    <div style={{ fontSize: '12px', color: '#9ca3af' }}>{txn.timestamp}</div>
-                  </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: '22px', fontWeight: 900, color: '#34d399' }}>₹{txn.totalAmount.toLocaleString('en-IN')}</div>
+                      <div style={{ fontSize: '12px', color: '#9ca3af' }}>{txn.timestamp}</div>
+                    </div>
 
+                  </div>
+                ))
+              ) : (
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#64748b', padding: '40px', textAlign: 'center' }}>
+                  <ShoppingBag style={{ width: '48px', height: '48px', color: '#334155', marginBottom: '12px' }} />
+                  <h3 style={{ margin: 0, color: '#94a3b8', fontSize: '18px' }}>Waiting for Store Checkout Events...</h3>
+                  <p style={{ margin: '6px 0 0 0', fontSize: '13px' }}>Store #01 TV Portal connected to backend Socket.io event stream</p>
                 </div>
-              ))}
+              )}
             </div>
           </div>
 
@@ -309,12 +391,12 @@ export default function App() {
               <Truck style={{ width: '28px', height: '28px', color: '#f59e0b' }} />
               <div>
                 <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700 }}>{truckStatus.name}</h3>
-                <span style={{ fontSize: '12px', color: '#34d399' }}>Driver: {truckStatus.driver}</span>
+                <span style={{ fontSize: '12px', color: '#34d399' }}>Operator: {truckStatus.driver}</span>
               </div>
             </div>
 
             <div style={{ background: 'rgba(0,0,0,0.3)', padding: '16px', borderRadius: '12px', marginBottom: '16px', border: '1px solid rgba(255,255,255,0.05)' }}>
-              <div style={{ fontSize: '13px', color: '#9ca3af', marginBottom: '4px' }}>Current Route Zone</div>
+              <div style={{ fontSize: '13px', color: '#9ca3af', marginBottom: '4px' }}>Current Delivery Zone</div>
               <div style={{ fontSize: '16px', fontWeight: 700, color: '#fff' }}>{truckStatus.location}</div>
               
               <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '12px', fontSize: '12px', color: '#9ca3af' }}>
@@ -324,7 +406,7 @@ export default function App() {
             </div>
 
             <div style={{ background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.1), rgba(217, 119, 6, 0.1))', padding: '12px', borderRadius: '10px', border: '1px solid rgba(245, 158, 11, 0.3)', textAlign: 'center', fontSize: '13px', fontWeight: 600, color: '#fbbf24' }}>
-              📡 Live Telemetry Stream Connected
+              📡 Telemetry Stream Active
             </div>
           </div>
 
@@ -366,7 +448,7 @@ export default function App() {
               {activeCelebration.customerName}
             </h2>
             <p style={{ fontSize: '16px', color: '#9ca3af', margin: 0 }}>
-              Bill ID: <strong style={{ color: '#38bdf8' }}>{activeCelebration.billId || activeCelebration.orderId}</strong> • Verified by {activeCelebration.workerName}
+              Transaction No: <strong style={{ color: '#38bdf8' }}>{activeCelebration.transactionNumber}</strong>
             </p>
 
             {/* Items Purchased List */}
@@ -375,7 +457,7 @@ export default function App() {
               {activeCelebration.items.map((item, idx) => (
                 <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '18px', fontWeight: 600, borderBottom: idx < activeCelebration.items.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none', padding: '8px 0' }}>
                   <span>{item.name} ({item.quantityKg} kg)</span>
-                  <span style={{ color: '#38bdf8' }}>₹{item.price}</span>
+                  <span style={{ color: '#38bdf8' }}>₹{item.subtotal || (item.price * item.quantityKg)}</span>
                 </div>
               ))}
             </div>

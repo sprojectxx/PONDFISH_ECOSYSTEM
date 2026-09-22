@@ -31,7 +31,10 @@
     "typecheck:all": "npm run typecheck:backend && npm run typecheck:website && npm run typecheck:worker && npm run typecheck:admin && npm run typecheck:tv && npm run typecheck:customer",
     "build:all": "npm run build:backend && npm run build:website && npm run build:worker && npm run build:admin && npm run build:tv && npm run typecheck:customer",
     "test:backend": "npm run test --workspace=backend",
-    "test:all": "npm run test:backend"
+    "test:admin": "npm run test --workspace=admin-portal",
+    "test:worker": "npm run test --workspace=worker-portal",
+    "test:tv": "npm run test --workspace=tv-portal",
+    "test:all": "npm run test:backend && npm run test --workspace=admin-portal && npm run test --workspace=worker-portal && npm run test --workspace=tv-portal"
   },
   "devDependencies": {
     "typescript": "^5.3.3"

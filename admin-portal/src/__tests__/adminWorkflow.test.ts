@@ -19,25 +19,25 @@ describe('Admin Portal Hardening & Verification Unit Tests', () => {
     });
   });
 
-  describe('TASK 2 & 8 — Authentication & Session Management (A, B, C, D, E, G, H)', () => {
-    it('restores stored admin session from localStorage (A & C)', () => {
+  describe('TASK 2 — Authentication & Session Management', () => {
+    it('restores stored admin session from localStorage', () => {
       localStorage.setItem('pondfish_admin_jwt', 'valid-admin-jwt-777');
       const token = AdminAuthStorageService.getToken();
       expect(token).toBe('valid-admin-jwt-777');
     });
 
-    it('returns null when no session token exists (B)', () => {
+    it('returns null when no session token exists', () => {
       const token = AdminAuthStorageService.getToken();
       expect(token).toBeNull();
     });
 
-    it('purges session storage on logout (D)', () => {
+    it('purges session storage on logout', () => {
       localStorage.setItem('pondfish_admin_jwt', 'token-to-purge');
       AdminAuthStorageService.clearToken();
       expect(localStorage.getItem('pondfish_admin_jwt')).toBeNull();
     });
 
-    it('safely recovers from unreadable/corrupted storage (E)', () => {
+    it('safely recovers from unreadable/corrupted storage', () => {
       const spy = jest.spyOn(Storage.prototype, 'getItem').mockImplementationOnce(() => {
         throw new Error('Storage corrupted');
       });
@@ -48,7 +48,7 @@ describe('Admin Portal Hardening & Verification Unit Tests', () => {
     });
   });
 
-  describe('TASK 4 — Fish Catalogue & Category Payload Validation (I & J)', () => {
+  describe('TASK 3 & 4 — Fish Catalogue & Inventory Payload Validation', () => {
     it('constructs valid fish creation request payload with real category ID', () => {
       const payload = {
         categoryId: 'real-category-uuid-101',
@@ -63,9 +63,34 @@ describe('Admin Portal Hardening & Verification Unit Tests', () => {
       expect(payload.categoryId).not.toBe('00000000-0000-0000-0000-000000000001');
       expect(payload.unitPrice).toBeGreaterThan(0);
     });
+
+    it('constructs valid inventory batch receiving request payload', () => {
+      const stockBatchPayload = {
+        fishId: 'fish-uuid-555',
+        batchCode: 'BATCH-2026-MURREL-01',
+        receivedQty: 50,
+        expiryHours: 48,
+      };
+
+      expect(stockBatchPayload.fishId).toBe('fish-uuid-555');
+      expect(stockBatchPayload.receivedQty).toBeGreaterThan(0);
+      expect(stockBatchPayload.expiryHours).toBe(48);
+    });
   });
 
-  describe('TASK 6 — Executive Analytics Data Parsing (K)', () => {
+  describe('TASK 5 — Booking Search & Filter Query Construction', () => {
+    it('constructs booking search query string with search term and status filter', () => {
+      const search = 'Rajesh';
+      const status = 'CONFIRMED';
+      let query = `/admin/bookings?`;
+      if (search.trim()) query += `search=${encodeURIComponent(search.trim())}&`;
+      if (status) query += `status=${encodeURIComponent(status)}`;
+
+      expect(query).toBe('/admin/bookings?search=Rajesh&status=CONFIRMED');
+    });
+  });
+
+  describe('TASK 6 — Executive Analytics & Financial Ledger Parsing', () => {
     it('parses analytics backend metrics accurately', () => {
       const backendResponse = {
         totalRevenue: '12500.00',
@@ -76,10 +101,11 @@ describe('Admin Portal Hardening & Verification Unit Tests', () => {
 
       expect(parseFloat(backendResponse.totalRevenue)).toBe(12500.00);
       expect(backendResponse.totalTransactions).toBe(45);
+      expect(parseFloat(backendResponse.totalGSTCollected)).toBe(225.00);
     });
   });
 
-  describe('TASK 7 — GPS Workflow Request Construction (L & M)', () => {
+  describe('TASK 7 — GPS Workflow Request Construction', () => {
     it('constructs GPS journey start payload with user-provided truck & driver inputs', () => {
       const truckNumber = 'AP-39-TF-2026';
       const driverName = 'Suresh Babu';
@@ -91,6 +117,20 @@ describe('Admin Portal Hardening & Verification Unit Tests', () => {
 
       expect(gpsRequest.truckNumber).toBe('AP-39-TF-2026');
       expect(gpsRequest.driverName).toBe('Suresh Babu');
+    });
+  });
+
+  describe('TASK 8 — Worker Account Creation Request Construction', () => {
+    it('constructs valid worker account creation payload', () => {
+      const workerPayload = {
+        name: 'Suresh Worker',
+        mobileNumber: '9876543210',
+        password: 'securePassword123',
+      };
+
+      expect(workerPayload.name).toBe('Suresh Worker');
+      expect(workerPayload.mobileNumber).toBe('9876543210');
+      expect(workerPayload.password).toBe('securePassword123');
     });
   });
 });

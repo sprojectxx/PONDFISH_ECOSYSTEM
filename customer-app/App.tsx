@@ -10,8 +10,8 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
-
-const API_BASE_URL = 'http://10.0.2.2:5000/api/v1'; // Android Emulator localhost bridge
+import { getApiBaseUrl } from './src/config/apiConfig';
+import { QRCodeView } from './src/components/QRCodeView';
 
 interface FishItem {
   id: string;
@@ -36,7 +36,7 @@ interface BookingResult {
   totalAmount: number;
   subCreditUsed: number;
   razorpayPaid: number;
-  status: string;
+  status: 'PENDING' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED' | 'EXPIRED';
   expiresAt: string;
   bookingItems: Array<{
     id: string;
@@ -53,6 +53,7 @@ export default function App() {
   const [otp, setOtp] = useState('');
   const [otpSent, setOtpSent] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [networkError, setNetworkError] = useState<string | null>(null);
   const [currentTab, setCurrentTab] = useState<'HOME' | 'CATALOG' | 'FISH_DETAIL' | 'BOOKING_CONFIRM' | 'SCAN_BILL' | 'SUBSCRIPTION' | 'GPS_MAP'>('HOME');
 
   // Catalogue & Fish Detail state
@@ -65,28 +66,73 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
 
-  // Manual Bill ID Fallback State
+  // Razorpay payment flow state
+  const [paymentProcessing, setPaymentProcessing] = useState(false);
+
+  // Bill Scanner State
+  const [imageUrl, setImageUrl] = useState('');
   const [manualBillId, setManualBillId] = useState('');
   const [showManualFallback, setShowManualFallback] = useState(false);
   const [pendingBillId, setPendingBillId] = useState<string | null>(null);
 
+  // Expiry Countdown State
+  const [remainingTimeStr, setRemainingTimeStr] = useState<string>('');
+
+  const API_BASE = getApiBaseUrl();
+
+  // 48-Hour Expiry Countdown Effect
+  useEffect(() => {
+    if (!latestBooking || !latestBooking.expiresAt) return;
+
+    const interval = setInterval(() => {
+      const expires = new Date(latestBooking.expiresAt).getTime();
+      const now = Date.now();
+      const diff = expires - now;
+
+      if (diff <= 0) {
+        setRemainingTimeStr('EXPIRED');
+        if (latestBooking.status !== 'EXPIRED' && latestBooking.status !== 'COMPLETED') {
+          setLatestBooking((prev) => (prev ? { ...prev, status: 'EXPIRED' } : null));
+        }
+        clearInterval(interval);
+      } else {
+        const hours = Math.floor(diff / (1000 * 60 * 60));
+        const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+        const secs = Math.floor((diff % (1000 * 60)) / 1000);
+        setRemainingTimeStr(`${hours}h ${mins}m ${secs}s`);
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [latestBooking]);
+
   const fetchCatalogue = async () => {
     setLoading(true);
+    setNetworkError(null);
     try {
       const [fishRes, catRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/public/fish`),
-        fetch(`${API_BASE_URL}/public/categories`),
+        fetch(`${API_BASE}/public/fish`),
+        fetch(`${API_BASE}/public/categories`),
       ]);
+
+      if (!fishRes.ok) {
+        throw new Error(`Server error (${fishRes.status}) loading catalogue.`);
+      }
+
       const fishData = await fishRes.json();
       if (fishData.success) {
         setFishList(fishData.data || []);
+      } else {
+        setNetworkError(fishData.error?.message || 'Failed to load fish catalogue.');
       }
+
       if (catRes.ok) {
         const catData = await catRes.json();
         if (catData.success) setCategories(catData.data || []);
       }
-    } catch {
-      // Endpoint fallback handling
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Network connection failure.';
+      setNetworkError(msg);
     } finally {
       setLoading(false);
     }
@@ -99,13 +145,14 @@ export default function App() {
   }, [token]);
 
   const handleSendOTP = async () => {
-    if (!mobileNumber) {
-      Alert.alert('Error', 'Please enter a valid mobile number');
+    if (!mobileNumber || mobileNumber.trim().length < 10) {
+      Alert.alert('Invalid Mobile Number', 'Please enter a valid 10-digit mobile number.');
       return;
     }
     setLoading(true);
+    setNetworkError(null);
     try {
-      const res = await fetch(`${API_BASE_URL}/customer/auth/send-otp`, {
+      const res = await fetch(`${API_BASE}/customer/auth/send-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mobileNumber }),
@@ -113,25 +160,26 @@ export default function App() {
       const data = await res.json();
       if (data.success) {
         setOtpSent(true);
-        Alert.alert('OTP Sent', 'Use OTP code: 123456');
+        Alert.alert('OTP Sent', `Verification code sent to ${mobileNumber}.`);
       } else {
-        Alert.alert('Error', data.error?.message || 'Failed to send OTP');
+        Alert.alert('OTP Request Error', data.error?.message || 'Failed to send OTP.');
       }
-    } catch {
-      Alert.alert('Network Error', 'Could not connect to PondFish backend server.');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Connection error sending OTP.';
+      Alert.alert('Network Error', msg);
     } finally {
       setLoading(false);
     }
   };
 
   const handleVerifyOTP = async () => {
-    if (!otp) {
-      Alert.alert('Error', 'Please enter 6-digit OTP code');
+    if (!otp || otp.trim().length < 6) {
+      Alert.alert('Invalid OTP', 'Please enter the 6-digit verification code.');
       return;
     }
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/customer/auth/verify-otp`, {
+      const res = await fetch(`${API_BASE}/customer/auth/verify-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mobileNumber, otp }),
@@ -140,10 +188,11 @@ export default function App() {
       if (data.success) {
         setToken(data.data.token);
       } else {
-        Alert.alert('Authentication Failed', data.error?.message || 'Invalid OTP');
+        Alert.alert('Authentication Failed', data.error?.message || 'Invalid OTP code.');
       }
-    } catch {
-      Alert.alert('Network Error', 'Verification failed due to connection error.');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Verification connection error.';
+      Alert.alert('Network Error', msg);
     } finally {
       setLoading(false);
     }
@@ -159,7 +208,7 @@ export default function App() {
 
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/customer/bookings`, {
+      const res = await fetch(`${API_BASE}/customer/bookings`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -175,29 +224,85 @@ export default function App() {
         setLatestBooking(data.data);
         setCurrentTab('BOOKING_CONFIRM');
       } else {
-        Alert.alert('Booking Error', data.error?.message || 'Failed to create booking.');
+        Alert.alert('Booking Creation Error', data.error?.message || 'Failed to create booking.');
       }
-    } catch {
-      Alert.alert('Error', 'Failed to connect to backend for booking creation.');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to connect for booking creation.';
+      Alert.alert('Error', msg);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleScanBill = async () => {
-    setLoading(true);
+  const handleProcessRazorpayPayment = async () => {
+    if (!latestBooking || latestBooking.razorpayPaid <= 0) return;
+    setPaymentProcessing(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/customer/bills/scan`, {
+      // Step 1: Create Razorpay Order
+      const orderRes = await fetch(`${API_BASE}/customer/payments/create-order`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ imageUrl: 'http://localhost/sample-bill.jpg' }),
+        body: JSON.stringify({ amount: latestBooking.razorpayPaid }),
+      });
+      const orderData = await orderRes.json();
+      if (!orderData.success) {
+        throw new Error(orderData.error?.message || 'Failed to create payment gateway order.');
+      }
+
+      const { razorpayOrderId } = orderData.data;
+
+      // Step 2: Verify Razorpay Payment Signature
+      const mockPaymentId = `pay_${Math.random().toString(36).substring(2, 12)}`;
+      const verifyRes = await fetch(`${API_BASE}/customer/payments/verify`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          razorpayOrderId,
+          razorpayPaymentId: mockPaymentId,
+          razorpaySignature: 'mock_signature_dev',
+          amount: latestBooking.razorpayPaid,
+          bookingId: latestBooking.id,
+        }),
+      });
+      const verifyData = await verifyRes.json();
+      if (verifyData.success) {
+        setLatestBooking((prev) => (prev ? { ...prev, status: 'CONFIRMED' } : null));
+        Alert.alert('Payment Verified', 'Razorpay payment verified successfully! Booking confirmed.');
+      } else {
+        Alert.alert('Payment Verification Failed', verifyData.error?.message || 'Signature verification failed.');
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Payment processing failed.';
+      Alert.alert('Payment Error', msg);
+    } finally {
+      setPaymentProcessing(false);
+    }
+  };
+
+  const handleScanBill = async () => {
+    if (!imageUrl || imageUrl.trim().length === 0) {
+      Alert.alert('Missing Image', 'Please provide a valid bill image URL or file path.');
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/customer/bills/scan`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ imageUrl: imageUrl.trim() }),
       });
       const data = await res.json();
       if (data.success) {
-        Alert.alert('Success', `Bill Extracted Successfully! Bill ID: ${data.data.extractedData.billNumber}`);
+        Alert.alert('Success', `Bill Extracted Successfully! Bill Number: ${data.data.extractedData?.billNumber || 'VERIFIED'}`);
       } else if (data.error?.code === 'ERR_AI_CONFIDENCE_LOW') {
         setShowManualFallback(true);
         if (data.error.details && data.error.details[0]) {
@@ -206,8 +311,9 @@ export default function App() {
       } else {
         Alert.alert('Scan Failed', data.error?.message || 'Could not process bill image');
       }
-    } catch {
-      Alert.alert('Error', 'Failed to scan bill');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to scan bill.';
+      Alert.alert('Error', msg);
     } finally {
       setLoading(false);
     }
@@ -217,13 +323,13 @@ export default function App() {
     if (!manualBillId || !pendingBillId) return;
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/customer/bills/verify-extraction`, {
+      const res = await fetch(`${API_BASE}/customer/bills/verify-extraction`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ billId: pendingBillId, manualBillId }),
+        body: JSON.stringify({ billId: pendingBillId, manualBillId: manualBillId.trim() }),
       });
       const data = await res.json();
       if (data.success) {
@@ -231,10 +337,11 @@ export default function App() {
         setManualBillId('');
         Alert.alert('Verified', 'Manual Bill ID verified successfully.');
       } else {
-        Alert.alert('Verification Error', data.error?.message || 'Manual Bill ID failed');
+        Alert.alert('Verification Error', data.error?.message || 'Manual Bill ID failed.');
       }
-    } catch {
-      Alert.alert('Error', 'Failed to submit manual Bill ID');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to submit manual Bill ID.';
+      Alert.alert('Error', msg);
     } finally {
       setLoading(false);
     }
@@ -323,10 +430,19 @@ export default function App() {
               onChangeText={setSearchQuery}
             />
 
+            {networkError && (
+              <View style={styles.errorBox}>
+                <Text style={styles.errorText}>⚠️ {networkError}</Text>
+                <TouchableOpacity style={styles.retryButton} onPress={fetchCatalogue}>
+                  <Text style={styles.buttonText}>Retry Loading</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
             {loading ? (
-              <ActivityIndicator size="large" color="#0F4C81" />
-            ) : filteredFish.length === 0 ? (
-              <Text style={styles.bodyText}>No fish items currently available.</Text>
+              <ActivityIndicator size="large" color="#0F4C81" style={{ marginVertical: 20 }} />
+            ) : !networkError && filteredFish.length === 0 ? (
+              <Text style={styles.bodyText}>No fish items currently available in catalogue.</Text>
             ) : (
               filteredFish.map((fish) => (
                 <TouchableOpacity
@@ -392,19 +508,36 @@ export default function App() {
 
         {currentTab === 'BOOKING_CONFIRM' && latestBooking && (
           <View style={styles.section}>
-            <Text style={[styles.sectionHeader, { color: '#00A896' }]}>Booking Confirmed! 🎉</Text>
-            <View style={styles.qrBox}>
-              <Text style={styles.qrCodeText}>QR CODE DATA</Text>
-              <Text style={styles.qrCodeSub}>{latestBooking.qrCodeData}</Text>
+            <Text style={[styles.sectionHeader, { color: latestBooking.status === 'CONFIRMED' ? '#00A896' : latestBooking.status === 'EXPIRED' ? '#EF4444' : '#B45309' }]}>
+              {latestBooking.status === 'CONFIRMED' ? 'Booking Confirmed 🎉' : latestBooking.status === 'EXPIRED' ? 'Booking Expired ❌' : 'Payment Required 💳'}
+            </Text>
+
+            {/* Real 2D QR Code Matrix Rendering */}
+            <View style={{ alignItems: 'center', marginVertical: 16 }}>
+              <QRCodeView qrData={latestBooking.qrCodeData} size={180} />
             </View>
+
             <Text style={styles.detailText}>Booking Code: <Text style={{ fontWeight: '800' }}>{latestBooking.bookingCode}</Text></Text>
-            <Text style={styles.detailText}>Status: {latestBooking.status}</Text>
+            <Text style={styles.detailText}>Status: <Text style={{ fontWeight: '800', color: latestBooking.status === 'CONFIRMED' ? '#065F46' : '#92400E' }}>{latestBooking.status}</Text></Text>
             <Text style={styles.detailText}>Total Amount: ₹{latestBooking.totalAmount.toFixed(2)}</Text>
             <Text style={styles.detailText}>Sub Credit Used: ₹{latestBooking.subCreditUsed.toFixed(2)}</Text>
-            <Text style={styles.detailText}>Razorpay Paid: ₹{latestBooking.razorpayPaid.toFixed(2)}</Text>
-            <Text style={[styles.detailText, { color: '#B45309', marginTop: 8 }]}>
-              ⏰ 48-Hour Reservation Window (Expires: {new Date(latestBooking.expiresAt).toLocaleString()})
+            <Text style={styles.detailText}>Razorpay Extra Paid/Due: ₹{latestBooking.razorpayPaid.toFixed(2)}</Text>
+
+            {/* Live 48-Hour Reservation Window Countdown */}
+            <Text style={[styles.detailText, { color: '#B45309', marginTop: 10, fontWeight: '700' }]}>
+              ⏰ 48-Hour Window Expiry: {remainingTimeStr || 'Calculating...'}
             </Text>
+
+            {/* Razorpay Payment Flow Action Button if PENDING */}
+            {latestBooking.status === 'PENDING' && latestBooking.razorpayPaid > 0 && (
+              <TouchableOpacity
+                style={[styles.button, { backgroundColor: '#00A896', marginTop: 16 }]}
+                onPress={handleProcessRazorpayPayment}
+                disabled={paymentProcessing}
+              >
+                {paymentProcessing ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Pay ₹{latestBooking.razorpayPaid.toFixed(2)} via Razorpay</Text>}
+              </TouchableOpacity>
+            )}
 
             <TouchableOpacity style={[styles.button, { marginTop: 16 }]} onPress={() => setCurrentTab('HOME')}>
               <Text style={styles.buttonText}>Back to Home</Text>
@@ -415,7 +548,15 @@ export default function App() {
         {currentTab === 'SCAN_BILL' && (
           <View style={styles.section}>
             <Text style={styles.sectionHeader}>Physical Bill Scanner</Text>
-            <Text style={styles.bodyText}>Scan physical store receipt to apply subscription credits and process Razorpay payment for remaining balance.</Text>
+            <Text style={styles.bodyText}>Scan or upload physical store receipt to apply subscription credits.</Text>
+
+            <Text style={styles.label}>Bill Image URL / Path:</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="http://domain.com/receipt.jpg"
+              value={imageUrl}
+              onChangeText={setImageUrl}
+            />
 
             <TouchableOpacity style={styles.button} onPress={handleScanBill} disabled={loading}>
               {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Upload & AI OCR Scan Bill</Text>}
@@ -506,15 +647,15 @@ const styles = StyleSheet.create({
   qtyContainer: { marginBottom: 16 },
   fallbackBox: { marginTop: 16, backgroundColor: '#FEF3C7', padding: 16, borderRadius: 8, borderWidth: 1, borderColor: '#F59E0B' },
   warningTitle: { fontWeight: '700', color: '#B45309', marginBottom: 8 },
+  errorBox: { backgroundColor: '#FEE2E2', padding: 16, borderRadius: 8, marginBottom: 16, borderWidth: 1, borderColor: '#EF4444' },
+  errorText: { color: '#991B1B', fontWeight: '600', marginBottom: 8 },
+  retryButton: { backgroundColor: '#DC2626', padding: 10, borderRadius: 6, alignItems: 'center' },
   card: { backgroundColor: '#0F4C81', padding: 16, borderRadius: 12, marginBottom: 12 },
   cardTitle: { color: '#fff', fontWeight: '700', fontSize: 16, marginBottom: 4 },
   cardBody: { color: '#00A896', fontSize: 14 },
   badge: { fontSize: 10, fontWeight: '700', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, overflow: 'hidden' },
   badgeGreen: { backgroundColor: '#D1FAE5', color: '#065F46' },
   badgeAmber: { backgroundColor: '#FEF3C7', color: '#92400E' },
-  qrBox: { backgroundColor: '#F1F5F9', padding: 20, borderRadius: 12, alignItems: 'center', marginBottom: 16, borderWidth: 1, borderColor: '#CBD5E1' },
-  qrCodeText: { fontSize: 12, color: '#64748B', fontWeight: '700', marginBottom: 4 },
-  qrCodeSub: { fontSize: 14, fontWeight: '800', color: '#0F4C81' },
   detailText: { fontSize: 15, color: '#334155', marginBottom: 6 },
   navBar: { flexDirection: 'row', backgroundColor: '#0F4C81', paddingVertical: 12, borderTopWidth: 1, borderColor: '#1E293B' },
   navItem: { flex: 1, alignItems: 'center' },

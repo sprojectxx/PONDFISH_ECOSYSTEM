@@ -134,6 +134,16 @@ export class BookingModule {
     return booking;
   }
 
+  static async getCustomerBookings(customerId: string) {
+    return await prisma.booking.findMany({
+      where: { customerId },
+      include: {
+        bookingItems: { include: { fish: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
   static async markBookingComplete(bookingId: string, workerId: string) {
     return await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const booking = await tx.booking.findUnique({

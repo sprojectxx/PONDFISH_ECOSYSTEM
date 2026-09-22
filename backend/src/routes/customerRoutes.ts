@@ -88,6 +88,15 @@ router.post('/bookings', async (req, res, next) => {
   }
 });
 
+router.get('/bookings', async (req, res, next) => {
+  try {
+    const bookings = await BookingModule.getCustomerBookings(req.user!.id);
+    return sendSuccess(res, bookings, 'Customer booking history retrieved successfully');
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/bookings/:id', async (req, res, next) => {
   try {
     const booking = await BookingModule.getBookingById(req.params.id, req.user!.id);

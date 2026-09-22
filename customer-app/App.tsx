@@ -9,10 +9,19 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
+  Modal,
 } from 'react-native';
 import { getApiBaseUrl } from './src/config/apiConfig';
 import { QRCodeView } from './src/components/QRCodeView';
 import { PaymentServiceAdapter, PaymentState } from './src/services/paymentService';
+
+interface CustomerProfile {
+  id?: string;
+  mobileNumber?: string;
+  name?: string;
+  age?: number;
+  area?: string;
+}
 
 interface FishItem {
   id: string;
@@ -39,6 +48,7 @@ interface BookingResult {
   razorpayPaid: number;
   status: 'PENDING' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED' | 'EXPIRED';
   expiresAt: string;
+  createdAt?: string;
   bookingItems: Array<{
     id: string;
     quantityKg: number;
@@ -48,6 +58,35 @@ interface BookingResult {
   }>;
 }
 
+interface SubscriptionPlan {
+  id: string;
+  name: string;
+  description?: string;
+  price: number;
+  creditAmount: number;
+  weeklyQtyLimitKg: number;
+}
+
+interface CustomerSubscription {
+  id: string;
+  planId: string;
+  creditBalance: number;
+  status: 'ACTIVE' | 'EXPIRED' | 'CANCELLED';
+  expiresAt: string;
+  plan?: SubscriptionPlan;
+}
+
+interface LiveGPSJourney {
+  id?: string;
+  truckId?: string;
+  truckNumber?: string;
+  driverName?: string;
+  status?: string;
+  currentLat?: number;
+  currentLng?: number;
+  lastUpdated?: string;
+}
+
 export default function App() {
   const [token, setToken] = useState<string | null>(null);
   const [mobileNumber, setMobileNumber] = useState('');
@@ -55,7 +94,18 @@ export default function App() {
   const [otpSent, setOtpSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [networkError, setNetworkError] = useState<string | null>(null);
-  const [currentTab, setCurrentTab] = useState<'HOME' | 'CATALOG' | 'FISH_DETAIL' | 'BOOKING_CONFIRM' | 'SCAN_BILL' | 'SUBSCRIPTION' | 'GPS_MAP'>('HOME');
+
+  const [currentTab, setCurrentTab] = useState<
+    'HOME' | 'CATALOG' | 'FISH_DETAIL' | 'BOOKINGS' | 'BOOKING_CONFIRM' | 'SCAN_BILL' | 'SUBSCRIPTION' | 'GPS_MAP' | 'PROFILE'
+  >('HOME');
+
+  // Customer Profile state
+  const [profile, setProfile] = useState<CustomerProfile | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editAge, setEditAge] = useState('');
+  const [editArea, setEditArea] = useState('');
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [profileLoading, setProfileLoading] = useState(false);
 
   // Catalogue & Fish Detail state
   const [fishList, setFishList] = useState<FishItem[]>([]);
@@ -63,9 +113,14 @@ export default function App() {
   const [selectedFish, setSelectedFish] = useState<FishItem | null>(null);
   const [bookingQtyKg, setBookingQtyKg] = useState('1.0');
   const [useSubCredit, setUseSubCredit] = useState(true);
-  const [latestBooking, setLatestBooking] = useState<BookingResult | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
+
+  // Booking history & active booking state
+  const [bookingHistory, setBookingHistory] = useState<BookingResult[]>([]);
+  const [latestBooking, setLatestBooking] = useState<BookingResult | null>(null);
+  const [bookingsLoading, setBookingsLoading] = useState(false);
+  const [bookingsError, setBookingsError] = useState<string | null>(null);
 
   // Payment Lifecycle State
   const [paymentState, setPaymentState] = useState<PaymentState>('PAYMENT_REQUIRED');
@@ -76,6 +131,15 @@ export default function App() {
   const [manualBillId, setManualBillId] = useState('');
   const [showManualFallback, setShowManualFallback] = useState(false);
   const [pendingBillId, setPendingBillId] = useState<string | null>(null);
+
+  // Subscription Hub state
+  const [subscription, setSubscription] = useState<CustomerSubscription | null>(null);
+  const [subscriptionPlans, setSubscriptionPlans] = useState<SubscriptionPlan[]>([]);
+  const [subLoading, setSubLoading] = useState(false);
+
+  // Live GPS state
+  const [liveGPS, setLiveGPS] = useState<LiveGPSJourney | null>(null);
+  const [gpsLoading, setGpsLoading] = useState(false);
 
   // Expiry Countdown State
   const [remainingTimeStr, setRemainingTimeStr] = useState<string>('');
@@ -94,6 +158,10 @@ export default function App() {
       if (diff <= 0) {
         setRemainingTimeStr('EXPIRED');
         clearInterval(interval);
+        // Automatically refetch authoritative status when expiry timer elapses
+        if (latestBooking.status === 'PENDING') {
+          fetchAuthoritativeBooking(latestBooking.id);
+        }
       } else {
         const hours = Math.floor(diff / (1000 * 60 * 60));
         const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
@@ -120,6 +188,175 @@ export default function App() {
       }
     } catch {
       // Retry refetch silently if network hiccup
+    }
+  };
+
+  /**
+   * Fetch All Customer Bookings History
+   */
+  const fetchBookingHistory = async () => {
+    if (!token) return;
+    setBookingsLoading(true);
+    setBookingsError(null);
+    try {
+      const res = await fetch(`${API_BASE}/customer/bookings`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setBookingHistory(data.data || []);
+      } else {
+        setBookingsError(data.error?.message || 'Failed to fetch booking history.');
+      }
+    } catch (err) {
+      setBookingsError('Network error loading booking history.');
+    } finally {
+      setBookingsLoading(false);
+    }
+  };
+
+  /**
+   * Fetch Customer Profile
+   */
+  const fetchProfile = async () => {
+    if (!token) return;
+    setProfileLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/customer/profile`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.ok && data.success && data.data) {
+        setProfile(data.data);
+        setEditName(data.data.name || '');
+        setEditAge(data.data.age ? String(data.data.age) : '');
+        setEditArea(data.data.area || '');
+        // Prompt for profile completion if name or area is missing
+        if (!data.data.name || !data.data.area) {
+          setShowProfileModal(true);
+        }
+      }
+    } catch {
+      // Profile fetch retry available in Profile tab
+    } finally {
+      setProfileLoading(false);
+    }
+  };
+
+  /**
+   * Update Customer Profile
+   */
+  const handleUpdateProfile = async () => {
+    if (!editName.trim() || !editArea.trim()) {
+      Alert.alert('Required Fields', 'Please enter your Name and Area/Locality.');
+      return;
+    }
+    setProfileLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/customer/profile`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          name: editName.trim(),
+          age: editAge ? parseInt(editAge, 10) : undefined,
+          area: editArea.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setProfile(data.data);
+        setShowProfileModal(false);
+        Alert.alert('Profile Saved', 'Your customer profile has been updated.');
+      } else {
+        Alert.alert('Profile Error', data.error?.message || 'Failed to update profile.');
+      }
+    } catch (err) {
+      Alert.alert('Network Error', 'Could not save profile changes.');
+    } finally {
+      setProfileLoading(false);
+    }
+  };
+
+  /**
+   * Fetch Customer Subscription & Available Plans
+   */
+  const fetchSubscriptionInfo = async () => {
+    if (!token) return;
+    setSubLoading(true);
+    try {
+      const [subRes, plansRes] = await Promise.all([
+        fetch(`${API_BASE}/customer/subscription`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API_BASE}/public/subscription-plans`),
+      ]);
+
+      if (subRes.ok) {
+        const subData = await subRes.json();
+        if (subData.success) setSubscription(subData.data);
+      }
+
+      if (plansRes.ok) {
+        const plansData = await plansRes.json();
+        if (plansData.success) setSubscriptionPlans(plansData.data || []);
+      }
+    } catch {
+      // Subscription failure state handled in Subscription UI tab
+    } finally {
+      setSubLoading(false);
+    }
+  };
+
+  /**
+   * Purchase Subscription Plan
+   */
+  const handlePurchaseSubscription = async (planId: string) => {
+    if (!token) return;
+    setSubLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/customer/subscription/purchase`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ planId }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setSubscription(data.data);
+        Alert.alert('Subscription Active!', 'Your subscription plan has been activated.');
+      } else {
+        Alert.alert('Purchase Error', data.error?.message || 'Failed to purchase subscription plan.');
+      }
+    } catch (err) {
+      Alert.alert('Network Error', 'Connection error purchasing subscription.');
+    } finally {
+      setSubLoading(false);
+    }
+  };
+
+  /**
+   * Fetch Live Delivery Truck GPS Status
+   */
+  const fetchLiveGPS = async () => {
+    if (!token) return;
+    setGpsLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/customer/gps/live`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setLiveGPS(data.data);
+      } else {
+        setLiveGPS(null);
+      }
+    } catch {
+      setLiveGPS(null);
+    } finally {
+      setGpsLoading(false);
     }
   };
 
@@ -158,6 +395,9 @@ export default function App() {
   useEffect(() => {
     if (token) {
       fetchCatalogue();
+      fetchProfile();
+      fetchSubscriptionInfo();
+      fetchBookingHistory();
     }
   }, [token]);
 
@@ -215,6 +455,17 @@ export default function App() {
     }
   };
 
+  const handleLogout = () => {
+    setToken(null);
+    setMobileNumber('');
+    setOtp('');
+    setOtpSent(false);
+    setProfile(null);
+    setLatestBooking(null);
+    setBookingHistory([]);
+    setCurrentTab('HOME');
+  };
+
   const handleCreateBooking = async () => {
     if (!selectedFish) return;
     const qty = parseFloat(bookingQtyKg);
@@ -241,6 +492,7 @@ export default function App() {
         setLatestBooking(data.data);
         setPaymentState('PAYMENT_REQUIRED');
         setPaymentStatusMessage(null);
+        fetchBookingHistory();
         setCurrentTab('BOOKING_CONFIRM');
       } else {
         Alert.alert('Booking Creation Error', data.error?.message || 'Failed to create booking.');
@@ -274,6 +526,7 @@ export default function App() {
       if (result.success) {
         // Refetch authoritative booking state from backend after successful verification
         await fetchAuthoritativeBooking(latestBooking.id);
+        fetchBookingHistory();
         Alert.alert('Payment Verified', 'Razorpay payment verified successfully with backend! Booking confirmed.');
       } else if (!result.cancelled) {
         Alert.alert('Payment Failed', result.error || 'Payment signature verification failed.');
@@ -304,6 +557,7 @@ export default function App() {
       const data = await res.json();
       if (data.success) {
         Alert.alert('Scan Success', `Bill Extracted Successfully! Bill Number: ${data.data.extractedData?.billNumber || 'VERIFIED'}`);
+        fetchSubscriptionInfo();
       } else if (data.error?.code === 'ERR_AI_CONFIDENCE_LOW') {
         setShowManualFallback(true);
         if (data.error.details && data.error.details[0]) {
@@ -336,6 +590,7 @@ export default function App() {
       if (data.success) {
         setShowManualFallback(false);
         setManualBillId('');
+        fetchSubscriptionInfo();
         Alert.alert('Verified', 'Manual Bill ID verified successfully.');
       } else {
         Alert.alert('Verification Error', data.error?.message || 'Manual Bill ID failed.');
@@ -354,6 +609,7 @@ export default function App() {
     return matchesSearch && matchesCat;
   });
 
+  // Auth Screen Flow
   if (!token) {
     return (
       <SafeAreaView style={styles.authContainer}>
@@ -396,37 +652,121 @@ export default function App() {
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* Header Bar with Profile summary & Logout */}
       <View style={styles.headerBar}>
-        <Text style={styles.headerTitle}>PONDFISH CUSTOMER APP</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.headerTitle}>PONDFISH</Text>
+          {profile?.name && <Text style={styles.headerSubtitle}>Welcome, {profile.name}</Text>}
+        </View>
+        <TouchableOpacity style={styles.headerLogoutBtn} onPress={handleLogout}>
+          <Text style={styles.headerLogoutText}>Logout</Text>
+        </TouchableOpacity>
       </View>
 
+      {/* Profile Completion Modal for First Time Login */}
+      <Modal visible={showProfileModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Complete Your Profile</Text>
+            <Text style={styles.bodyText}>Please provide your name and locality to start browsing fresh fish.</Text>
+
+            <Text style={styles.label}>Full Name *</Text>
+            <TextInput style={styles.input} placeholder="e.g. Ramesh Varma" value={editName} onChangeText={setEditName} />
+
+            <Text style={styles.label}>Age (Optional)</Text>
+            <TextInput style={styles.input} placeholder="e.g. 35" value={editAge} onChangeText={setEditAge} keyboardType="number-pad" />
+
+            <Text style={styles.label}>Area / Locality *</Text>
+            <TextInput style={styles.input} placeholder="e.g. Vijayawada East" value={editArea} onChangeText={setEditArea} />
+
+            <TouchableOpacity style={[styles.button, { backgroundColor: '#00A896', marginTop: 8 }]} onPress={handleUpdateProfile} disabled={profileLoading}>
+              {profileLoading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Save Profile</Text>}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       <ScrollView style={styles.content}>
+        {/* HOME TAB */}
         {currentTab === 'HOME' && (
           <View>
-            <Text style={styles.sectionHeader}>Welcome Customer</Text>
+            <Text style={styles.sectionHeader}>Customer Hub</Text>
+
+            {/* Profile Greeting Card */}
+            <View style={[styles.card, { backgroundColor: '#00A896', marginBottom: 16 }]}>
+              <Text style={styles.cardTitle}>👋 Hello {profile?.name || 'Valued Customer'}</Text>
+              <Text style={{ color: '#fff', fontSize: 14 }}>Mobile: {profile?.mobileNumber || mobileNumber}</Text>
+              {profile?.area && <Text style={{ color: '#E0F2FE', fontSize: 13 }}>Locality: {profile.area}</Text>}
+            </View>
+
+            {/* Quick Action Tiles */}
             <View style={styles.tileContainer}>
               <TouchableOpacity style={styles.tile} onPress={() => { setCurrentTab('CATALOG'); fetchCatalogue(); }}>
                 <Text style={styles.tileText}>🐟 Browse Fish</Text>
               </TouchableOpacity>
+              <TouchableOpacity style={styles.tile} onPress={() => { setCurrentTab('BOOKINGS'); fetchBookingHistory(); }}>
+                <Text style={styles.tileText}>📦 My Bookings</Text>
+              </TouchableOpacity>
               <TouchableOpacity style={styles.tile} onPress={() => setCurrentTab('SCAN_BILL')}>
                 <Text style={styles.tileText}>📷 Scan Bill</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.tile} onPress={() => setCurrentTab('SUBSCRIPTION')}>
+              <TouchableOpacity style={styles.tile} onPress={() => { setCurrentTab('SUBSCRIPTION'); fetchSubscriptionInfo(); }}>
                 <Text style={styles.tileText}>💳 Subscriptions</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.tile} onPress={() => setCurrentTab('GPS_MAP')}>
+              <TouchableOpacity style={styles.tile} onPress={() => { setCurrentTab('GPS_MAP'); fetchLiveGPS(); }}>
                 <Text style={styles.tileText}>🚚 Live Truck GPS</Text>
               </TouchableOpacity>
+              <TouchableOpacity style={styles.tile} onPress={() => setCurrentTab('PROFILE')}>
+                <Text style={styles.tileText}>👤 My Profile</Text>
+              </TouchableOpacity>
             </View>
+
+            {/* Latest Active Booking Widget */}
+            {latestBooking && (
+              <View style={[styles.section, { marginTop: 16 }]}>
+                <Text style={styles.sectionHeader}>Active Booking Summary</Text>
+                <Text style={styles.detailText}>Code: <Text style={{ fontWeight: '800' }}>{latestBooking.bookingCode}</Text></Text>
+                <Text style={styles.detailText}>Status: <Text style={{ fontWeight: '800', color: latestBooking.status === 'CONFIRMED' ? '#065F46' : '#92400E' }}>{latestBooking.status}</Text></Text>
+                <TouchableOpacity
+                  style={[styles.button, { marginTop: 8, backgroundColor: '#0F4C81' }]}
+                  onPress={() => setCurrentTab('BOOKING_CONFIRM')}
+                >
+                  <Text style={styles.buttonText}>View Ticket & QR Code</Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
         )}
 
+        {/* CATALOGUE TAB */}
         {currentTab === 'CATALOG' && (
           <View style={styles.section}>
             <Text style={styles.sectionHeader}>Fish Catalogue</Text>
+
+            {/* Category Filter Chips */}
+            {categories.length > 0 && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+                <TouchableOpacity
+                  style={[styles.chip, selectedCategory === 'ALL' && styles.chipSelected]}
+                  onPress={() => setSelectedCategory('ALL')}
+                >
+                  <Text style={[styles.chipText, selectedCategory === 'ALL' && styles.chipTextSelected]}>All Categories</Text>
+                </TouchableOpacity>
+                {categories.map((cat) => (
+                  <TouchableOpacity
+                    key={cat.id}
+                    style={[styles.chip, selectedCategory === cat.id && styles.chipSelected]}
+                    onPress={() => setSelectedCategory(cat.id)}
+                  >
+                    <Text style={[styles.chipText, selectedCategory === cat.id && styles.chipTextSelected]}>{cat.name}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+
             <TextInput
               style={styles.input}
-              placeholder="🔍 Search fish..."
+              placeholder="🔍 Search fish by name..."
               value={searchQuery}
               onChangeText={setSearchQuery}
             />
@@ -443,7 +783,9 @@ export default function App() {
             {loading ? (
               <ActivityIndicator size="large" color="#0F4C81" style={{ marginVertical: 20 }} />
             ) : !networkError && filteredFish.length === 0 ? (
-              <Text style={styles.bodyText}>No fish items currently available in catalogue.</Text>
+              <View style={styles.emptyBox}>
+                <Text style={styles.emptyText}>No fish items matching your search criteria.</Text>
+              </View>
             ) : (
               filteredFish.map((fish) => (
                 <TouchableOpacity
@@ -454,7 +796,7 @@ export default function App() {
                     setCurrentTab('FISH_DETAIL');
                   }}
                 >
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                     <Text style={styles.cardTitle}>{fish.name}</Text>
                     <Text style={[styles.badge, fish.freshnessState === 'GREEN' ? styles.badgeGreen : styles.badgeAmber]}>
                       {fish.freshnessState === 'GREEN' ? 'FRESH' : 'STANDARD'}
@@ -462,7 +804,7 @@ export default function App() {
                   </View>
                   <Text style={styles.cardBody}>₹{fish.unitPrice} / kg</Text>
                   <Text style={{ color: fish.onlineBookable ? '#00A896' : '#94A3B8', fontSize: 12, marginTop: 4 }}>
-                    {fish.onlineBookable ? '✓ Online Bookable' : 'In-Store Only'}
+                    {fish.onlineBookable ? '✓ Available for Online Booking' : 'In-Store Physical Purchase Only'}
                   </Text>
                 </TouchableOpacity>
               ))
@@ -470,11 +812,16 @@ export default function App() {
           </View>
         )}
 
+        {/* FISH DETAIL TAB */}
         {currentTab === 'FISH_DETAIL' && selectedFish && (
           <View style={styles.section}>
+            <TouchableOpacity style={{ marginBottom: 12 }} onPress={() => setCurrentTab('CATALOG')}>
+              <Text style={{ color: '#0F4C81', fontWeight: '700' }}>← Back to Catalogue</Text>
+            </TouchableOpacity>
+
             <Text style={styles.sectionHeader}>{selectedFish.name}</Text>
             <Text style={styles.bodyText}>{selectedFish.description || 'Fresh catch sourced daily from verified farms.'}</Text>
-            <Text style={styles.priceLabel}>Price: ₹{selectedFish.unitPrice} / kg</Text>
+            <Text style={styles.priceLabel}>Unit Price: ₹{selectedFish.unitPrice} / kg</Text>
 
             <View style={styles.qtyContainer}>
               <Text style={styles.label}>Booking Quantity (kg):</Text>
@@ -484,14 +831,19 @@ export default function App() {
                 onChangeText={setBookingQtyKg}
                 keyboardType="decimal-pad"
               />
+              {parseFloat(bookingQtyKg) > 0 && (
+                <Text style={{ fontSize: 14, fontWeight: '700', color: '#0F4C81' }}>
+                  Subtotal: ₹{(parseFloat(bookingQtyKg) * selectedFish.unitPrice).toFixed(2)}
+                </Text>
+              )}
             </View>
 
             <TouchableOpacity
-              style={[styles.button, { backgroundColor: '#00A896', marginBottom: 12 }]}
+              style={[styles.button, { backgroundColor: useSubCredit ? '#00A896' : '#64748B', marginBottom: 12 }]}
               onPress={() => setUseSubCredit(!useSubCredit)}
             >
               <Text style={styles.buttonText}>
-                {useSubCredit ? '✓ Subscription Credit Enabled' : 'Use Subscription Credit: OFF'}
+                {useSubCredit ? '✓ Subscription Credit: ON' : 'Use Subscription Credit: OFF'}
               </Text>
             </TouchableOpacity>
 
@@ -500,15 +852,82 @@ export default function App() {
                 {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Confirm Online Booking</Text>}
               </TouchableOpacity>
             ) : (
-              <Text style={[styles.bodyText, { color: '#EF4444', textAlign: 'center' }]}>
+              <Text style={[styles.bodyText, { color: '#EF4444', textAlign: 'center', marginTop: 12 }]}>
                 This item is available for physical in-store purchase only.
               </Text>
             )}
           </View>
         )}
 
+        {/* BOOKING HISTORY TAB */}
+        {currentTab === 'BOOKINGS' && (
+          <View style={styles.section}>
+            <Text style={styles.sectionHeader}>Booking History</Text>
+
+            {bookingsError && (
+              <View style={styles.errorBox}>
+                <Text style={styles.errorText}>⚠️ {bookingsError}</Text>
+                <TouchableOpacity style={styles.retryButton} onPress={fetchBookingHistory}>
+                  <Text style={styles.buttonText}>Retry</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {bookingsLoading ? (
+              <ActivityIndicator size="large" color="#0F4C81" style={{ marginVertical: 20 }} />
+            ) : bookingHistory.length === 0 ? (
+              <View style={styles.emptyBox}>
+                <Text style={styles.emptyText}>You have no previous or active bookings.</Text>
+                <TouchableOpacity style={[styles.button, { marginTop: 12 }]} onPress={() => setCurrentTab('CATALOG')}>
+                  <Text style={styles.buttonText}>Browse Fish Catalogue</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              bookingHistory.map((bk) => (
+                <TouchableOpacity
+                  key={bk.id}
+                  style={styles.historyCard}
+                  onPress={() => {
+                    setLatestBooking(bk);
+                    setCurrentTab('BOOKING_CONFIRM');
+                  }}
+                >
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={{ fontWeight: '800', fontSize: 16, color: '#0F4C81' }}>{bk.bookingCode}</Text>
+                    <Text
+                      style={[
+                        styles.badge,
+                        bk.status === 'CONFIRMED' || bk.status === 'COMPLETED'
+                          ? styles.badgeGreen
+                          : bk.status === 'EXPIRED' || bk.status === 'CANCELLED'
+                          ? styles.badgeRed
+                          : styles.badgeAmber,
+                      ]}
+                    >
+                      {bk.status}
+                    </Text>
+                  </View>
+                  <Text style={{ color: '#475569', marginVertical: 4 }}>
+                    Total: ₹{bk.totalAmount.toFixed(2)} | Razorpay: ₹{bk.razorpayPaid.toFixed(2)}
+                  </Text>
+                  {bk.createdAt && (
+                    <Text style={{ fontSize: 12, color: '#94A3B8' }}>
+                      Booked: {new Date(bk.createdAt).toLocaleDateString()}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              ))
+            )}
+          </View>
+        )}
+
+        {/* BOOKING CONFIRMATION & TICKET DETAIL TAB */}
         {currentTab === 'BOOKING_CONFIRM' && latestBooking && (
           <View style={styles.section}>
+            <TouchableOpacity style={{ marginBottom: 12 }} onPress={() => setCurrentTab('BOOKINGS')}>
+              <Text style={{ color: '#0F4C81', fontWeight: '700' }}>← Back to Booking History</Text>
+            </TouchableOpacity>
+
             <Text style={[styles.sectionHeader, { color: latestBooking.status === 'CONFIRMED' ? '#00A896' : latestBooking.status === 'EXPIRED' ? '#EF4444' : '#B45309' }]}>
               {latestBooking.status === 'CONFIRMED' ? 'Booking Confirmed 🎉' : latestBooking.status === 'EXPIRED' ? 'Booking Expired ❌' : 'Payment Required 💳'}
             </Text>
@@ -519,15 +938,17 @@ export default function App() {
             </View>
 
             <Text style={styles.detailText}>Booking Code: <Text style={{ fontWeight: '800' }}>{latestBooking.bookingCode}</Text></Text>
-            <Text style={styles.detailText}>Status: <Text style={{ fontWeight: '800', color: latestBooking.status === 'CONFIRMED' ? '#065F46' : '#92400E' }}>{latestBooking.status}</Text></Text>
+            <Text style={styles.detailText}>Status: <Text style={{ fontWeight: '800', color: latestBooking.status === 'CONFIRMED' ? '#065F46' : latestBooking.status === 'EXPIRED' ? '#991B1B' : '#92400E' }}>{latestBooking.status}</Text></Text>
             <Text style={styles.detailText}>Total Amount: ₹{latestBooking.totalAmount.toFixed(2)}</Text>
             <Text style={styles.detailText}>Sub Credit Used: ₹{latestBooking.subCreditUsed.toFixed(2)}</Text>
             <Text style={styles.detailText}>Razorpay Amount Payable: ₹{latestBooking.razorpayPaid.toFixed(2)}</Text>
 
             {/* 48-Hour Window Expiry Countdown */}
-            <Text style={[styles.detailText, { color: '#B45309', marginTop: 10, fontWeight: '700' }]}>
-              ⏰ 48-Hour Reservation Window: {remainingTimeStr || 'Calculating...'}
-            </Text>
+            {latestBooking.status === 'PENDING' && (
+              <Text style={[styles.detailText, { color: '#B45309', marginTop: 10, fontWeight: '700' }]}>
+                ⏰ 48-Hour Reservation Window: {remainingTimeStr || 'Calculating...'}
+              </Text>
+            )}
 
             {/* Refresh Authoritative Backend Booking State Button */}
             <TouchableOpacity
@@ -568,6 +989,7 @@ export default function App() {
           </View>
         )}
 
+        {/* BILL SCANNER TAB */}
         {currentTab === 'SCAN_BILL' && (
           <View style={styles.section}>
             <Text style={styles.sectionHeader}>Physical Bill Scanner</Text>
@@ -603,44 +1025,146 @@ export default function App() {
           </View>
         )}
 
+        {/* SUBSCRIPTION HUB TAB */}
         {currentTab === 'SUBSCRIPTION' && (
           <View style={styles.section}>
             <Text style={styles.sectionHeader}>Subscription Hub</Text>
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>Gold Fish Plan (Active)</Text>
-              <Text style={styles.cardBody}>Credit Balance: ₹3,500.00</Text>
-              <Text style={styles.cardBody}>Weekly Limit Used: 2.5 kg / 5.0 kg</Text>
-            </View>
+
+            {subLoading ? (
+              <ActivityIndicator size="large" color="#0F4C81" style={{ marginVertical: 20 }} />
+            ) : (
+              <View>
+                {/* Active Subscription Card */}
+                {subscription ? (
+                  <View style={[styles.card, { backgroundColor: '#00A896', marginBottom: 16 }]}>
+                    <Text style={styles.cardTitle}>Active Subscription ({subscription.plan?.name || 'Customer Plan'})</Text>
+                    <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700', marginVertical: 4 }}>
+                      Credit Balance: ₹{subscription.creditBalance.toFixed(2)}
+                    </Text>
+                    <Text style={{ color: '#E0F2FE', fontSize: 12 }}>
+                      Expires: {new Date(subscription.expiresAt).toLocaleDateString()}
+                    </Text>
+                  </View>
+                ) : (
+                  <View style={styles.emptyBox}>
+                    <Text style={styles.emptyText}>You do not currently have an active subscription plan.</Text>
+                  </View>
+                )}
+
+                {/* Available Subscription Plans */}
+                <Text style={[styles.sectionHeader, { fontSize: 16, marginTop: 12 }]}>Available Subscription Plans</Text>
+                {subscriptionPlans.length === 0 ? (
+                  <Text style={styles.bodyText}>No subscription plans available at this time.</Text>
+                ) : (
+                  subscriptionPlans.map((plan) => (
+                    <View key={plan.id} style={styles.planCard}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Text style={{ fontWeight: '800', fontSize: 16, color: '#0F4C81' }}>{plan.name}</Text>
+                        <Text style={{ fontWeight: '700', fontSize: 16, color: '#00A896' }}>₹{plan.price}</Text>
+                      </View>
+                      <Text style={{ color: '#475569', marginVertical: 4 }}>
+                        Includes ₹{plan.creditAmount} Subscription Credit | {plan.weeklyQtyLimitKg} kg/week limit
+                      </Text>
+                      <TouchableOpacity
+                        style={[styles.button, { marginTop: 8, backgroundColor: '#0F4C81' }]}
+                        onPress={() => handlePurchaseSubscription(plan.id)}
+                      >
+                        <Text style={styles.buttonText}>Purchase Plan</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))
+                )}
+              </View>
+            )}
           </View>
         )}
 
+        {/* LIVE TRUCK GPS TAB */}
         {currentTab === 'GPS_MAP' && (
           <View style={styles.section}>
             <Text style={styles.sectionHeader}>Live Delivery Truck Tracking</Text>
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>Truck: AP-39-TF-1001</Text>
-              <Text style={styles.cardBody}>Driver: Ramesh Kumar</Text>
-              <Text style={styles.cardBody}>Status: LIVE DELIVERY IN PROGRESS</Text>
+
+            {gpsLoading ? (
+              <ActivityIndicator size="large" color="#0F4C81" style={{ marginVertical: 20 }} />
+            ) : liveGPS && liveGPS.truckNumber ? (
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>🚛 Truck: {liveGPS.truckNumber}</Text>
+                <Text style={styles.cardBody}>Driver: {liveGPS.driverName || 'Assigned Driver'}</Text>
+                <Text style={styles.cardBody}>Status: {liveGPS.status || 'LIVE IN TRANSIT'}</Text>
+                {liveGPS.currentLat && (
+                  <Text style={{ color: '#E0F2FE', fontSize: 12, marginTop: 4 }}>
+                    Coordinates: {liveGPS.currentLat.toFixed(4)}, {liveGPS.currentLng?.toFixed(4)}
+                  </Text>
+                )}
+                {liveGPS.lastUpdated && (
+                  <Text style={{ color: '#E0F2FE', fontSize: 12, marginTop: 2 }}>
+                    Updated: {new Date(liveGPS.lastUpdated).toLocaleTimeString()}
+                  </Text>
+                )}
+              </View>
+            ) : (
+              <View style={styles.emptyBox}>
+                <Text style={styles.emptyText}>No delivery truck is currently published live in transit for your route.</Text>
+                <TouchableOpacity style={[styles.button, { marginTop: 12 }]} onPress={fetchLiveGPS}>
+                  <Text style={styles.buttonText}>Refresh GPS Signal</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* CUSTOMER PROFILE TAB */}
+        {currentTab === 'PROFILE' && (
+          <View style={styles.section}>
+            <Text style={styles.sectionHeader}>Customer Profile</Text>
+
+            <View style={styles.formGroup}>
+              <Text style={styles.label}>Mobile Number (Verified)</Text>
+              <TextInput style={[styles.input, { backgroundColor: '#F1F5F9' }]} value={profile?.mobileNumber || mobileNumber} editable={false} />
+
+              <Text style={styles.label}>Full Name</Text>
+              <TextInput style={styles.input} value={editName} onChangeText={setEditName} placeholder="Enter your name" />
+
+              <Text style={styles.label}>Age</Text>
+              <TextInput style={styles.input} value={editAge} onChangeText={setEditAge} placeholder="Enter age" keyboardType="number-pad" />
+
+              <Text style={styles.label}>Area / Locality</Text>
+              <TextInput style={styles.input} value={editArea} onChangeText={setEditArea} placeholder="Enter area/locality" />
+
+              <TouchableOpacity style={[styles.button, { backgroundColor: '#00A896', marginTop: 8 }]} onPress={handleUpdateProfile} disabled={profileLoading}>
+                {profileLoading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Save Profile Changes</Text>}
+              </TouchableOpacity>
             </View>
+
+            <TouchableOpacity style={[styles.button, { backgroundColor: '#EF4444', marginTop: 16 }]} onPress={handleLogout}>
+              <Text style={styles.buttonText}>Logout Account</Text>
+            </TouchableOpacity>
           </View>
         )}
       </ScrollView>
 
+      {/* Bottom Navigation Bar */}
       <View style={styles.navBar}>
         <TouchableOpacity style={styles.navItem} onPress={() => setCurrentTab('HOME')}>
-          <Text style={styles.navText}>Home</Text>
+          <Text style={[styles.navText, currentTab === 'HOME' && styles.navTextActive]}>Home</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.navItem} onPress={() => { setCurrentTab('CATALOG'); fetchCatalogue(); }}>
-          <Text style={styles.navText}>Catalog</Text>
+          <Text style={[styles.navText, currentTab === 'CATALOG' && styles.navTextActive]}>Catalog</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.navItem} onPress={() => { setCurrentTab('BOOKINGS'); fetchBookingHistory(); }}>
+          <Text style={[styles.navText, currentTab === 'BOOKINGS' && styles.navTextActive]}>Bookings</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.navItem} onPress={() => setCurrentTab('SCAN_BILL')}>
-          <Text style={styles.navText}>Scan Bill</Text>
+          <Text style={[styles.navText, currentTab === 'SCAN_BILL' && styles.navTextActive]}>Scan Bill</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem} onPress={() => setCurrentTab('SUBSCRIPTION')}>
-          <Text style={styles.navText}>Sub Hub</Text>
+        <TouchableOpacity style={styles.navItem} onPress={() => { setCurrentTab('SUBSCRIPTION'); fetchSubscriptionInfo(); }}>
+          <Text style={[styles.navText, currentTab === 'SUBSCRIPTION' && styles.navTextActive]}>Sub Hub</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem} onPress={() => setCurrentTab('GPS_MAP')}>
-          <Text style={styles.navText}>Live Map</Text>
+        <TouchableOpacity style={styles.navItem} onPress={() => { setCurrentTab('GPS_MAP'); fetchLiveGPS(); }}>
+          <Text style={[styles.navText, currentTab === 'GPS_MAP' && styles.navTextActive]}>Live Map</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.navItem} onPress={() => setCurrentTab('PROFILE')}>
+          <Text style={[styles.navText, currentTab === 'PROFILE' && styles.navTextActive]}>Profile</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -654,16 +1178,19 @@ const styles = StyleSheet.create({
   subtitle: { fontSize: 16, color: '#00A896', textAlign: 'center', marginBottom: 32 },
   formGroup: { backgroundColor: '#fff', padding: 20, borderRadius: 12 },
   label: { fontSize: 14, fontWeight: '600', marginBottom: 8, color: '#1E293B' },
-  input: { borderWidth: 1, borderColor: '#CBD5E1', padding: 12, borderRadius: 8, marginBottom: 16, fontSize: 16 },
+  input: { borderWidth: 1, borderColor: '#CBD5E1', padding: 12, borderRadius: 8, marginBottom: 16, fontSize: 16, backgroundColor: '#fff' },
   button: { backgroundColor: '#0F4C81', padding: 14, borderRadius: 8, alignItems: 'center' },
   buttonText: { color: '#fff', fontWeight: '700', fontSize: 16 },
-  headerBar: { backgroundColor: '#0F4C81', padding: 16, alignItems: 'center' },
+  headerBar: { backgroundColor: '#0F4C81', padding: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   headerTitle: { color: '#fff', fontWeight: '800', fontSize: 18 },
+  headerSubtitle: { color: '#00A896', fontSize: 12, fontWeight: '600' },
+  headerLogoutBtn: { backgroundColor: '#1E293B', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 },
+  headerLogoutText: { color: '#fff', fontSize: 12, fontWeight: '700' },
   content: { flex: 1, padding: 16 },
   sectionHeader: { fontSize: 20, fontWeight: '700', color: '#0F4C81', marginBottom: 16 },
   tileContainer: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
-  tile: { backgroundColor: '#fff', width: '48%', padding: 20, borderRadius: 12, marginBottom: 16, borderWidth: 1, borderColor: '#E2E8F0', alignItems: 'center' },
-  tileText: { fontWeight: '700', color: '#0F4C81', fontSize: 16 },
+  tile: { backgroundColor: '#fff', width: '48%', padding: 16, borderRadius: 12, marginBottom: 12, borderWidth: 1, borderColor: '#E2E8F0', alignItems: 'center' },
+  tileText: { fontWeight: '700', color: '#0F4C81', fontSize: 14 },
   section: { backgroundColor: '#fff', padding: 16, borderRadius: 12, marginBottom: 16 },
   bodyText: { color: '#64748B', marginBottom: 16, lineHeight: 22 },
   priceLabel: { fontSize: 18, fontWeight: '700', color: '#0F4C81', marginBottom: 16 },
@@ -672,15 +1199,28 @@ const styles = StyleSheet.create({
   warningTitle: { fontWeight: '700', color: '#B45309', marginBottom: 8 },
   errorBox: { backgroundColor: '#FEE2E2', padding: 16, borderRadius: 8, marginBottom: 16, borderWidth: 1, borderColor: '#EF4444' },
   errorText: { color: '#991B1B', fontWeight: '600', marginBottom: 8 },
+  emptyBox: { backgroundColor: '#F1F5F9', padding: 16, borderRadius: 8, marginVertical: 12, alignItems: 'center' },
+  emptyText: { color: '#64748B', fontSize: 14, textAlign: 'center' },
   retryButton: { backgroundColor: '#DC2626', padding: 10, borderRadius: 6, alignItems: 'center' },
   card: { backgroundColor: '#0F4C81', padding: 16, borderRadius: 12, marginBottom: 12 },
+  historyCard: { backgroundColor: '#F8FAFC', padding: 14, borderRadius: 8, marginBottom: 10, borderWidth: 1, borderColor: '#E2E8F0' },
+  planCard: { backgroundColor: '#F8FAFC', padding: 14, borderRadius: 8, marginBottom: 12, borderWidth: 1, borderColor: '#CBD5E1' },
   cardTitle: { color: '#fff', fontWeight: '700', fontSize: 16, marginBottom: 4 },
   cardBody: { color: '#00A896', fontSize: 14 },
   badge: { fontSize: 10, fontWeight: '700', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, overflow: 'hidden' },
   badgeGreen: { backgroundColor: '#D1FAE5', color: '#065F46' },
   badgeAmber: { backgroundColor: '#FEF3C7', color: '#92400E' },
+  badgeRed: { backgroundColor: '#FEE2E2', color: '#991B1B' },
   detailText: { fontSize: 15, color: '#334155', marginBottom: 6 },
-  navBar: { flexDirection: 'row', backgroundColor: '#0F4C81', paddingVertical: 12, borderTopWidth: 1, borderColor: '#1E293B' },
+  chip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, backgroundColor: '#F1F5F9', marginRight: 8, borderWidth: 1, borderColor: '#CBD5E1' },
+  chipSelected: { backgroundColor: '#0F4C81', borderColor: '#0F4C81' },
+  chipText: { fontSize: 12, color: '#475569', fontWeight: '600' },
+  chipTextSelected: { color: '#fff' },
+  navBar: { flexDirection: 'row', backgroundColor: '#0F4C81', paddingVertical: 10, borderTopWidth: 1, borderColor: '#1E293B' },
   navItem: { flex: 1, alignItems: 'center' },
-  navText: { color: '#fff', fontWeight: '600' },
+  navText: { color: '#94A3B8', fontWeight: '600', fontSize: 11 },
+  navTextActive: { color: '#00A896', fontWeight: '800' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 24 },
+  modalContent: { backgroundColor: '#fff', borderRadius: 16, padding: 20 },
+  modalTitle: { fontSize: 20, fontWeight: '800', color: '#0F4C81', marginBottom: 8 },
 });

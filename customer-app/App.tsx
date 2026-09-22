@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { getApiBaseUrl } from './src/config/apiConfig';
 import { QRCodeView } from './src/components/QRCodeView';
-import { PaymentServiceAdapter } from './src/services/paymentService';
+import { PaymentServiceAdapter, PaymentState } from './src/services/paymentService';
 
 interface FishItem {
   id: string;
@@ -67,9 +67,9 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
 
-  // Payment State
-  const [paymentProcessing, setPaymentProcessing] = useState(false);
-  const [paymentStatusText, setPaymentStatusText] = useState<string | null>(null);
+  // Payment Lifecycle State
+  const [paymentState, setPaymentState] = useState<PaymentState>('PAYMENT_REQUIRED');
+  const [paymentStatusMessage, setPaymentStatusMessage] = useState<string | null>(null);
 
   // Bill Scanner State
   const [imageUrl, setImageUrl] = useState('');
@@ -239,6 +239,8 @@ export default function App() {
       const data = await res.json();
       if (data.success) {
         setLatestBooking(data.data);
+        setPaymentState('PAYMENT_REQUIRED');
+        setPaymentStatusMessage(null);
         setCurrentTab('BOOKING_CONFIRM');
       } else {
         Alert.alert('Booking Creation Error', data.error?.message || 'Failed to create booking.');
@@ -252,39 +254,35 @@ export default function App() {
   };
 
   /**
-   * Initiate Razorpay Payment Initialization Flow
+   * Initiate Razorpay Payment Initialization & Native Checkout Flow
    */
   const handleInitiateRazorpayPayment = async () => {
     if (!latestBooking || latestBooking.razorpayPaid <= 0 || !token) return;
 
-    setPaymentProcessing(true);
-    setPaymentStatusText('Initializing Razorpay Order via Backend...');
-
     try {
-      // Step 1: Create Order via backend API
-      const order = await PaymentServiceAdapter.createOrder(latestBooking.razorpayPaid, token);
-      setPaymentStatusText(`Razorpay Order Created: ${order.razorpayOrderId}. Launching Gateway...`);
+      const result = await PaymentServiceAdapter.launchNativeCheckout({
+        amount: latestBooking.razorpayPaid,
+        token,
+        bookingId: latestBooking.id,
+        customerMobile: mobileNumber,
+        onStateChange: (state, message) => {
+          setPaymentState(state);
+          if (message) setPaymentStatusMessage(message);
+        },
+      });
 
-      Alert.alert(
-        'Razorpay Payment Gateway Interface',
-        `Order ID: ${order.razorpayOrderId}\nAmount: ₹${order.amount}\n\nPlease complete payment in the native Razorpay gateway interface on your mobile device.`,
-        [
-          {
-            text: 'Cancel Payment',
-            style: 'cancel',
-            onPress: () => {
-              setPaymentProcessing(false);
-              setPaymentStatusText('Payment cancelled by customer.');
-            },
-          },
-        ]
-      );
+      if (result.success) {
+        // Refetch authoritative booking state from backend after successful verification
+        await fetchAuthoritativeBooking(latestBooking.id);
+        Alert.alert('Payment Verified', 'Razorpay payment verified successfully with backend! Booking confirmed.');
+      } else if (!result.cancelled) {
+        Alert.alert('Payment Failed', result.error || 'Payment signature verification failed.');
+      }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Payment initialization failed.';
-      setPaymentStatusText(`Payment Error: ${msg}`);
-      Alert.alert('Payment Initialization Failed', msg);
-    } finally {
-      setPaymentProcessing(false);
+      const msg = err instanceof Error ? err.message : 'Razorpay checkout failed.';
+      setPaymentState('PAYMENT_FAILED');
+      setPaymentStatusMessage(msg);
+      Alert.alert('Payment Error', msg);
     }
   };
 
@@ -547,14 +545,18 @@ export default function App() {
                 <TouchableOpacity
                   style={[styles.button, { backgroundColor: '#00A896' }]}
                   onPress={handleInitiateRazorpayPayment}
-                  disabled={paymentProcessing}
+                  disabled={paymentState === 'PAYMENT_PROCESSING' || paymentState === 'PAYMENT_VERIFICATION'}
                 >
-                  {paymentProcessing ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Pay ₹{latestBooking.razorpayPaid.toFixed(2)} via Razorpay</Text>}
+                  {paymentState === 'PAYMENT_PROCESSING' || paymentState === 'PAYMENT_VERIFICATION' ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.buttonText}>Pay ₹{latestBooking.razorpayPaid.toFixed(2)} via Razorpay SDK</Text>
+                  )}
                 </TouchableOpacity>
 
-                {paymentStatusText && (
-                  <Text style={{ fontSize: 12, color: '#64748B', textAlign: 'center', marginTop: 8, fontStyle: 'italic' }}>
-                    {paymentStatusText}
+                {paymentStatusMessage && (
+                  <Text style={{ fontSize: 12, color: paymentState === 'PAYMENT_FAILED' ? '#EF4444' : '#64748B', textAlign: 'center', marginTop: 8, fontStyle: 'italic' }}>
+                    {paymentStatusMessage}
                   </Text>
                 )}
               </View>

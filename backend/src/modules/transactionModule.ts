@@ -201,4 +201,15 @@ export class TransactionModule {
       return transaction;
     });
   }
+
+  static async getAllTransactions() {
+    return await prisma.transaction.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: {
+        customer: { select: { name: true, mobileNumber: true } },
+        transactionItems: { include: { fish: { select: { name: true } } } },
+        booking: { select: { bookingCode: true } },
+      },
+    });
+  }
 }

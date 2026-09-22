@@ -58,4 +58,17 @@ export class InventoryModule {
       take: 100,
     });
   }
+
+  static async getAllBatches(fishId?: string) {
+    const where: any = {};
+    if (fishId) where.fishId = fishId;
+
+    return await prisma.inventoryBatch.findMany({
+      where,
+      include: {
+        fish: true,
+      },
+      orderBy: { receivedAt: 'desc' },
+    });
+  }
 }

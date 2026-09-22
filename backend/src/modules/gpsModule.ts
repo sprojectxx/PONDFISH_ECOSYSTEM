@@ -53,4 +53,33 @@ export class GPSModule {
     });
     return journey;
   }
+
+  static async stopJourney(journeyId: string) {
+    const journey = await prisma.gPSJourney.findUnique({ where: { id: journeyId } });
+    if (!journey) {
+      throw new DomainError('ERR_JOURNEY_NOT_FOUND', 'GPS Journey not found.', 404);
+    }
+    return await prisma.gPSJourney.update({
+      where: { id: journeyId },
+      data: {
+        status: JourneyStatus.STOPPED,
+        endedAt: new Date(),
+        publishedToCustomer: false,
+      },
+    });
+  }
+
+  static async getActiveJourney() {
+    return await prisma.gPSJourney.findFirst({
+      where: {
+        status: JourneyStatus.LIVE,
+      },
+      include: {
+        positions: {
+          orderBy: { recordedAt: 'desc' },
+          take: 10,
+        },
+      },
+    });
+  }
 }

@@ -88,6 +88,15 @@ router.post('/bookings', async (req, res, next) => {
   }
 });
 
+router.get('/bookings/:id', async (req, res, next) => {
+  try {
+    const booking = await BookingModule.getBookingById(req.params.id, req.user!.id);
+    return sendSuccess(res, booking, 'Booking details retrieved successfully');
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.post('/bills/scan', async (req, res, next) => {
   try {
     const { imageUrl } = req.body;

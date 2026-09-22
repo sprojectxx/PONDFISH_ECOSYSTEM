@@ -116,6 +116,24 @@ export class BookingModule {
     });
   }
 
+  static async getBookingById(bookingId: string, customerId: string) {
+    const booking = await prisma.booking.findFirst({
+      where: {
+        OR: [{ id: bookingId }, { bookingCode: bookingId }],
+        customerId,
+      },
+      include: {
+        bookingItems: { include: { fish: true } },
+      },
+    });
+
+    if (!booking) {
+      throw new DomainError('ERR_BOOKING_NOT_FOUND', 'Booking record not found.', 404);
+    }
+
+    return booking;
+  }
+
   static async markBookingComplete(bookingId: string, workerId: string) {
     return await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const booking = await tx.booking.findUnique({

@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { generateQRCodeMatrix } from '../utils/qrEncoder';
+import QRCode from 'qrcode';
 
 interface QRCodeViewProps {
   qrData: string;
@@ -8,33 +8,48 @@ interface QRCodeViewProps {
 }
 
 /**
- * Standards-compliant ISO/IEC 18004 2D QR Code Ticket Renderer.
- * Encodes exact backend qrData string without fake hashing or hardcoded text.
+ * Standards-Compliant ISO/IEC 18004 QR Code Ticket Renderer
+ * Uses the official 'qrcode' engine for Reed-Solomon error correction
+ * and byte mode QR encoding of exact backend qrData payloads.
  */
 export const QRCodeView: React.FC<QRCodeViewProps> = ({ qrData, size = 200 }) => {
-  const matrix = generateQRCodeMatrix(qrData);
-  const matrixDimension = matrix.length;
-  const cellSize = size / matrixDimension;
+  const qrSymbol = QRCode.create(qrData || 'PONDFISH_BOOKING:EMPTY', {
+    errorCorrectionLevel: 'M',
+  });
+
+  const matrixSize = qrSymbol.modules.size;
+  const matrixData = qrSymbol.modules.data; // Uint8Array of module bits
+  const cellSize = size / matrixSize;
+
+  // Convert Uint8Array module bits into 2D rows
+  const rows: boolean[][] = [];
+  for (let r = 0; r < matrixSize; r++) {
+    const row: boolean[] = [];
+    for (let c = 0; c < matrixSize; c++) {
+      row.push(matrixData[r * matrixSize + c] === 1);
+    }
+    rows.push(row);
+  }
 
   return (
-    <View style={[styles.container, { width: size + 24, height: size + 50 }]}>
+    <View style={[styles.container, { width: size + 24, height: size + 54 }]}>
       <View style={[styles.qrBorder, { width: size, height: size }]}>
-        {matrix.map((row, rIdx) => (
-          <View key={`qr-row-${rIdx}`} style={{ flexDirection: 'row' }}>
-            {row.map((cell, cIdx) => (
+        {rows.map((row, rIdx) => (
+          <View key={`qr-r-${rIdx}`} style={{ flexDirection: 'row' }}>
+            {row.map((isDark, cIdx) => (
               <View
-                key={`qr-cell-${rIdx}-${cIdx}`}
+                key={`qr-c-${rIdx}-${cIdx}`}
                 style={{
                   width: cellSize,
                   height: cellSize,
-                  backgroundColor: cell ? '#0F4C81' : '#FFFFFF',
+                  backgroundColor: isDark ? '#0F4C81' : '#FFFFFF',
                 }}
               />
             ))}
           </View>
         ))}
       </View>
-      <Text style={styles.payloadText} numberOfLines={1} ellipsizeMode="middle" testID="qr-data-payload">
+      <Text style={styles.payloadText} numberOfLines={1} ellipsizeMode="middle" testID="qr-payload-text">
         {qrData}
       </Text>
     </View>

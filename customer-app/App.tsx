@@ -105,6 +105,24 @@ export default function App() {
     return () => clearInterval(interval);
   }, [latestBooking]);
 
+  /**
+   * Refetch Authoritative Booking State from Backend DB
+   */
+  const fetchAuthoritativeBooking = async (bookingId: string) => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE}/customer/bookings/${bookingId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setLatestBooking(data.data);
+      }
+    } catch {
+      // Retry refetch silently if network hiccup
+    }
+  };
+
   const fetchCatalogue = async () => {
     setLoading(true);
     setNetworkError(null);
@@ -234,13 +252,13 @@ export default function App() {
   };
 
   /**
-   * Initiate Razorpay Payment Initialization & Verification Flow
+   * Initiate Razorpay Payment Initialization Flow
    */
   const handleInitiateRazorpayPayment = async () => {
     if (!latestBooking || latestBooking.razorpayPaid <= 0 || !token) return;
 
     setPaymentProcessing(true);
-    setPaymentStatusText('Initializing Razorpay Order...');
+    setPaymentStatusText('Initializing Razorpay Order via Backend...');
 
     try {
       // Step 1: Create Order via backend API
@@ -248,8 +266,8 @@ export default function App() {
       setPaymentStatusText(`Razorpay Order Created: ${order.razorpayOrderId}. Launching Gateway...`);
 
       Alert.alert(
-        'Razorpay Payment Gateway',
-        `Order ID: ${order.razorpayOrderId}\nAmount: ₹${order.amount}\n\nPlease complete payment in Razorpay gateway interface.`,
+        'Razorpay Payment Gateway Interface',
+        `Order ID: ${order.razorpayOrderId}\nAmount: ₹${order.amount}\n\nPlease complete payment in the native Razorpay gateway interface on your mobile device.`,
         [
           {
             text: 'Cancel Payment',
@@ -513,9 +531,19 @@ export default function App() {
               ⏰ 48-Hour Reservation Window: {remainingTimeStr || 'Calculating...'}
             </Text>
 
+            {/* Refresh Authoritative Backend Booking State Button */}
+            <TouchableOpacity
+              style={{ marginVertical: 10, padding: 8, alignItems: 'center' }}
+              onPress={() => fetchAuthoritativeBooking(latestBooking.id)}
+            >
+              <Text style={{ color: '#0F4C81', fontSize: 13, fontWeight: '700', textDecorationLine: 'underline' }}>
+                🔄 Refresh Authoritative Booking Status from Backend
+              </Text>
+            </TouchableOpacity>
+
             {/* Razorpay Gateway Action Button */}
             {latestBooking.status === 'PENDING' && latestBooking.razorpayPaid > 0 && (
-              <View style={{ marginTop: 16 }}>
+              <View style={{ marginTop: 8 }}>
                 <TouchableOpacity
                   style={[styles.button, { backgroundColor: '#00A896' }]}
                   onPress={handleInitiateRazorpayPayment}

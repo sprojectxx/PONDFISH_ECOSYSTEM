@@ -144,6 +144,35 @@ export class BookingModule {
     });
   }
 
+  static async getWorkerBookings(params?: { search?: string; status?: BookingStatus }) {
+    const { search, status } = params || {};
+    const whereClause: Prisma.BookingWhereInput = {};
+
+    if (status) {
+      whereClause.status = status;
+    }
+
+    if (search && search.trim().length > 0) {
+      const query = search.trim();
+      whereClause.OR = [
+        { bookingCode: { contains: query, mode: 'insensitive' } },
+        { id: query },
+        { customer: { name: { contains: query, mode: 'insensitive' } } },
+        { customer: { mobileNumber: { contains: query } } },
+      ];
+    }
+
+    return await prisma.booking.findMany({
+      where: whereClause,
+      include: {
+        customer: true,
+        bookingItems: { include: { fish: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+
   static async markBookingComplete(bookingId: string, workerId: string) {
     return await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const booking = await tx.booking.findUnique({

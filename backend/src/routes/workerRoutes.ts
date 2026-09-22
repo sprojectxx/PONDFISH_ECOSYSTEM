@@ -22,6 +22,17 @@ router.post('/auth/login', async (req, res, next) => {
 // Protected Worker Routes
 router.use(authenticateJWT, requireRole(['WORKER', 'ADMIN']));
 
+router.get('/bookings', async (req, res, next) => {
+  try {
+    const search = req.query.search as string | undefined;
+    const status = req.query.status as any | undefined;
+    const bookings = await BookingModule.getWorkerBookings({ search, status });
+    return sendSuccess(res, bookings, 'Worker bookings retrieved successfully');
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.post('/bookings/:id/complete', async (req, res, next) => {
   try {
     const booking = await BookingModule.markBookingComplete(req.params.id, req.user!.id);

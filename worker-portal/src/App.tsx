@@ -6,11 +6,12 @@ export default function App() {
   const [token, setToken] = useState<string | null>(null);
   const [email, setEmail] = useState('worker@pondfish.com');
   const [password, setPassword] = useState('Worker@123456');
-  const [bookingCode, setBookingCode] = useState('');
+  const [bookingId, setBookingId] = useState('');
   const [loading, setLoading] = useState(false);
 
   // In-store checkout state
   const [customerId, setCustomerId] = useState('');
+  const [fishId, setFishId] = useState('');
   const [qtyKg, setQtyKg] = useState('2.0');
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -28,7 +29,7 @@ export default function App() {
       } else {
         alert(data.error?.message || 'Worker login failed');
       }
-    } catch (err) {
+    } catch {
       alert('Could not connect to backend server.');
     } finally {
       setLoading(false);
@@ -42,6 +43,7 @@ export default function App() {
     }
     setLoading(true);
     try {
+      const targetFishId = fishId || '00000000-0000-0000-0000-000000000001';
       const res = await fetch(`${API_BASE_URL}/worker/transactions/collect-cash`, {
         method: 'POST',
         headers: {
@@ -50,18 +52,46 @@ export default function App() {
         },
         body: JSON.stringify({
           customerId,
-          items: [{ fishId: '00000000-0000-0000-0000-000000000001', quantityKg: parseFloat(qtyKg) }],
+          items: [{ fishId: targetFishId, quantityKg: parseFloat(qtyKg) }],
           useSubscriptionCredit: true,
         }),
       });
       const data = await res.json();
       if (data.success) {
-        alert(`Cash Transaction Completed! Transaction No: ${data.data.transactionNumber}. Triggered TV display broadcast!`);
+        alert(`Cash Transaction Completed! Transaction No: ${data.data.transactionNumber}. Broadcasted to TV portal!`);
       } else {
         alert(data.error?.message || 'Checkout failed');
       }
-    } catch (err) {
+    } catch {
       alert('Failed to complete store cash transaction');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCompleteBooking = async () => {
+    if (!bookingId) {
+      alert('Please enter Booking ID or QR Ticket Code');
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/worker/bookings/${bookingId}/complete`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(`Booking ${data.data.bookingCode || bookingId} marked COMPLETED successfully! Stock deducted.`);
+        setBookingId('');
+      } else {
+        alert(data.error?.message || 'Failed to complete booking pickup');
+      }
+    } catch {
+      alert('Error connecting to backend for booking pickup completion.');
     } finally {
       setLoading(false);
     }
@@ -129,6 +159,17 @@ export default function App() {
               />
             </div>
 
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem' }}>Fish Item ID (Optional)</label>
+              <input
+                type="text"
+                placeholder="Fish ID or leave default"
+                value={fishId}
+                onChange={(e) => setFishId(e.target.value)}
+                style={{ width: '100%', padding: '0.75rem', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+              />
+            </div>
+
             <div style={{ marginBottom: '1.5rem' }}>
               <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem' }}>Fish Quantity (kg)</label>
               <input
@@ -150,18 +191,18 @@ export default function App() {
             <p style={{ color: '#64748b', fontSize: '0.9rem', marginBottom: '1.5rem' }}>Scan QR ticket code or search Booking ID to confirm customer pickup.</p>
 
             <div style={{ marginBottom: '1.5rem' }}>
-              <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem' }}>Booking Code / QR Ticket String</label>
+              <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem' }}>Booking Code / ID</label>
               <input
                 type="text"
-                placeholder="e.g. BK-987654"
-                value={bookingCode}
-                onChange={(e) => setBookingCode(e.target.value)}
+                placeholder="e.g. BK-987654 or UUID"
+                value={bookingId}
+                onChange={(e) => setBookingId(e.target.value)}
                 style={{ width: '100%', padding: '0.75rem', borderRadius: '6px', border: '1px solid #cbd5e1' }}
               />
             </div>
 
-            <button onClick={() => alert(`Marked booking ${bookingCode} complete!`)} style={{ width: '100%', padding: '0.85rem', background: '#0f4c81', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 700, cursor: 'pointer' }}>
-              Verify & Mark Booking Complete
+            <button onClick={handleCompleteBooking} disabled={loading} style={{ width: '100%', padding: '0.85rem', background: '#0f4c81', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 700, cursor: 'pointer' }}>
+              {loading ? 'Verifying...' : 'Verify & Mark Booking Complete'}
             </button>
           </div>
         </div>

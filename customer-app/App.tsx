@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   SafeAreaView,
   StyleSheet,
@@ -13,18 +13,90 @@ import {
 
 const API_BASE_URL = 'http://10.0.2.2:5000/api/v1'; // Android Emulator localhost bridge
 
+interface FishItem {
+  id: string;
+  name: string;
+  description?: string;
+  unitPrice: number;
+  physicalAvailable: boolean;
+  onlineBookable: boolean;
+  freshnessState: 'GREEN' | 'GREY' | 'YELLOW' | 'RED';
+  categoryId: string;
+}
+
+interface Category {
+  id: string;
+  name: string;
+}
+
+interface BookingResult {
+  id: string;
+  bookingCode: string;
+  qrCodeData: string;
+  totalAmount: number;
+  subCreditUsed: number;
+  razorpayPaid: number;
+  status: string;
+  expiresAt: string;
+  bookingItems: Array<{
+    id: string;
+    quantityKg: number;
+    unitPrice: number;
+    subtotal: number;
+    fish?: { name: string };
+  }>;
+}
+
 export default function App() {
   const [token, setToken] = useState<string | null>(null);
   const [mobileNumber, setMobileNumber] = useState('');
   const [otp, setOtp] = useState('');
   const [otpSent, setOtpSent] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [currentTab, setCurrentTab] = useState<'HOME' | 'CATALOG' | 'SCAN_BILL' | 'SUBSCRIPTION' | 'GPS_MAP'>('HOME');
+  const [currentTab, setCurrentTab] = useState<'HOME' | 'CATALOG' | 'FISH_DETAIL' | 'BOOKING_CONFIRM' | 'SCAN_BILL' | 'SUBSCRIPTION' | 'GPS_MAP'>('HOME');
+
+  // Catalogue & Fish Detail state
+  const [fishList, setFishList] = useState<FishItem[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [selectedFish, setSelectedFish] = useState<FishItem | null>(null);
+  const [bookingQtyKg, setBookingQtyKg] = useState('1.0');
+  const [useSubCredit, setUseSubCredit] = useState(true);
+  const [latestBooking, setLatestBooking] = useState<BookingResult | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
 
   // Manual Bill ID Fallback State
   const [manualBillId, setManualBillId] = useState('');
   const [showManualFallback, setShowManualFallback] = useState(false);
   const [pendingBillId, setPendingBillId] = useState<string | null>(null);
+
+  const fetchCatalogue = async () => {
+    setLoading(true);
+    try {
+      const [fishRes, catRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/public/fish`),
+        fetch(`${API_BASE_URL}/public/categories`),
+      ]);
+      const fishData = await fishRes.json();
+      if (fishData.success) {
+        setFishList(fishData.data || []);
+      }
+      if (catRes.ok) {
+        const catData = await catRes.json();
+        if (catData.success) setCategories(catData.data || []);
+      }
+    } catch {
+      // Endpoint fallback handling
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (token) {
+      fetchCatalogue();
+    }
+  }, [token]);
 
   const handleSendOTP = async () => {
     if (!mobileNumber) {
@@ -45,7 +117,7 @@ export default function App() {
       } else {
         Alert.alert('Error', data.error?.message || 'Failed to send OTP');
       }
-    } catch (err) {
+    } catch {
       Alert.alert('Network Error', 'Could not connect to PondFish backend server.');
     } finally {
       setLoading(false);
@@ -70,8 +142,43 @@ export default function App() {
       } else {
         Alert.alert('Authentication Failed', data.error?.message || 'Invalid OTP');
       }
-    } catch (err) {
+    } catch {
       Alert.alert('Network Error', 'Verification failed due to connection error.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCreateBooking = async () => {
+    if (!selectedFish) return;
+    const qty = parseFloat(bookingQtyKg);
+    if (isNaN(qty) || qty <= 0) {
+      Alert.alert('Invalid Quantity', 'Please specify a quantity greater than 0 kg.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/customer/bookings`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          items: [{ fishId: selectedFish.id, quantityKg: qty }],
+          useSubscriptionCredit: useSubCredit,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setLatestBooking(data.data);
+        setCurrentTab('BOOKING_CONFIRM');
+      } else {
+        Alert.alert('Booking Error', data.error?.message || 'Failed to create booking.');
+      }
+    } catch {
+      Alert.alert('Error', 'Failed to connect to backend for booking creation.');
     } finally {
       setLoading(false);
     }
@@ -99,7 +206,7 @@ export default function App() {
       } else {
         Alert.alert('Scan Failed', data.error?.message || 'Could not process bill image');
       }
-    } catch (err) {
+    } catch {
       Alert.alert('Error', 'Failed to scan bill');
     } finally {
       setLoading(false);
@@ -126,12 +233,18 @@ export default function App() {
       } else {
         Alert.alert('Verification Error', data.error?.message || 'Manual Bill ID failed');
       }
-    } catch (err) {
+    } catch {
       Alert.alert('Error', 'Failed to submit manual Bill ID');
     } finally {
       setLoading(false);
     }
   };
+
+  const filteredFish = fishList.filter((fish) => {
+    const matchesSearch = fish.name.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesCat = selectedCategory === 'ALL' || fish.categoryId === selectedCategory;
+    return matchesSearch && matchesCat;
+  });
 
   if (!token) {
     return (
@@ -184,7 +297,7 @@ export default function App() {
           <View>
             <Text style={styles.sectionHeader}>Welcome Customer</Text>
             <View style={styles.tileContainer}>
-              <TouchableOpacity style={styles.tile} onPress={() => setCurrentTab('CATALOG')}>
+              <TouchableOpacity style={styles.tile} onPress={() => { setCurrentTab('CATALOG'); fetchCatalogue(); }}>
                 <Text style={styles.tileText}>🐟 Browse Fish</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.tile} onPress={() => setCurrentTab('SCAN_BILL')}>
@@ -197,6 +310,105 @@ export default function App() {
                 <Text style={styles.tileText}>🚚 Live Truck GPS</Text>
               </TouchableOpacity>
             </View>
+          </View>
+        )}
+
+        {currentTab === 'CATALOG' && (
+          <View style={styles.section}>
+            <Text style={styles.sectionHeader}>Fish Catalogue</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="🔍 Search fish..."
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+            />
+
+            {loading ? (
+              <ActivityIndicator size="large" color="#0F4C81" />
+            ) : filteredFish.length === 0 ? (
+              <Text style={styles.bodyText}>No fish items currently available.</Text>
+            ) : (
+              filteredFish.map((fish) => (
+                <TouchableOpacity
+                  key={fish.id}
+                  style={styles.card}
+                  onPress={() => {
+                    setSelectedFish(fish);
+                    setCurrentTab('FISH_DETAIL');
+                  }}
+                >
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                    <Text style={styles.cardTitle}>{fish.name}</Text>
+                    <Text style={[styles.badge, fish.freshnessState === 'GREEN' ? styles.badgeGreen : styles.badgeAmber]}>
+                      {fish.freshnessState === 'GREEN' ? 'FRESH' : 'STANDARD'}
+                    </Text>
+                  </View>
+                  <Text style={styles.cardBody}>₹{fish.unitPrice} / kg</Text>
+                  <Text style={{ color: fish.onlineBookable ? '#00A896' : '#94A3B8', fontSize: 12, marginTop: 4 }}>
+                    {fish.onlineBookable ? '✓ Online Bookable' : 'In-Store Only'}
+                  </Text>
+                </TouchableOpacity>
+              ))
+            )}
+          </View>
+        )}
+
+        {currentTab === 'FISH_DETAIL' && selectedFish && (
+          <View style={styles.section}>
+            <Text style={styles.sectionHeader}>{selectedFish.name}</Text>
+            <Text style={styles.bodyText}>{selectedFish.description || 'Fresh catch sourced daily from verified farms.'}</Text>
+            <Text style={styles.priceLabel}>Price: ₹{selectedFish.unitPrice} / kg</Text>
+
+            <View style={styles.qtyContainer}>
+              <Text style={styles.label}>Booking Quantity (kg):</Text>
+              <TextInput
+                style={styles.input}
+                value={bookingQtyKg}
+                onChangeText={setBookingQtyKg}
+                keyboardType="decimal-pad"
+              />
+            </View>
+
+            <TouchableOpacity
+              style={[styles.button, { backgroundColor: '#00A896', marginBottom: 12 }]}
+              onPress={() => setUseSubCredit(!useSubCredit)}
+            >
+              <Text style={styles.buttonText}>
+                {useSubCredit ? '✓ Subscription Credit Enabled' : 'Use Subscription Credit: OFF'}
+              </Text>
+            </TouchableOpacity>
+
+            {selectedFish.onlineBookable ? (
+              <TouchableOpacity style={styles.button} onPress={handleCreateBooking} disabled={loading}>
+                {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Confirm Online Booking</Text>}
+              </TouchableOpacity>
+            ) : (
+              <Text style={[styles.bodyText, { color: '#EF4444', textAlign: 'center' }]}>
+                This item is available for physical in-store purchase only.
+              </Text>
+            )}
+          </View>
+        )}
+
+        {currentTab === 'BOOKING_CONFIRM' && latestBooking && (
+          <View style={styles.section}>
+            <Text style={[styles.sectionHeader, { color: '#00A896' }]}>Booking Confirmed! 🎉</Text>
+            <View style={styles.qrBox}>
+              <Text style={styles.qrCodeText}>QR CODE DATA</Text>
+              <Text style={styles.qrCodeSub}>{latestBooking.qrCodeData}</Text>
+            </View>
+            <Text style={styles.detailText}>Booking Code: <Text style={{ fontWeight: '800' }}>{latestBooking.bookingCode}</Text></Text>
+            <Text style={styles.detailText}>Status: {latestBooking.status}</Text>
+            <Text style={styles.detailText}>Total Amount: ₹{latestBooking.totalAmount.toFixed(2)}</Text>
+            <Text style={styles.detailText}>Sub Credit Used: ₹{latestBooking.subCreditUsed.toFixed(2)}</Text>
+            <Text style={styles.detailText}>Razorpay Paid: ₹{latestBooking.razorpayPaid.toFixed(2)}</Text>
+            <Text style={[styles.detailText, { color: '#B45309', marginTop: 8 }]}>
+              ⏰ 48-Hour Reservation Window (Expires: {new Date(latestBooking.expiresAt).toLocaleString()})
+            </Text>
+
+            <TouchableOpacity style={[styles.button, { marginTop: 16 }]} onPress={() => setCurrentTab('HOME')}>
+              <Text style={styles.buttonText}>Back to Home</Text>
+            </TouchableOpacity>
           </View>
         )}
 
@@ -254,6 +466,9 @@ export default function App() {
         <TouchableOpacity style={styles.navItem} onPress={() => setCurrentTab('HOME')}>
           <Text style={styles.navText}>Home</Text>
         </TouchableOpacity>
+        <TouchableOpacity style={styles.navItem} onPress={() => { setCurrentTab('CATALOG'); fetchCatalogue(); }}>
+          <Text style={styles.navText}>Catalog</Text>
+        </TouchableOpacity>
         <TouchableOpacity style={styles.navItem} onPress={() => setCurrentTab('SCAN_BILL')}>
           <Text style={styles.navText}>Scan Bill</Text>
         </TouchableOpacity>
@@ -287,11 +502,20 @@ const styles = StyleSheet.create({
   tileText: { fontWeight: '700', color: '#0F4C81', fontSize: 16 },
   section: { backgroundColor: '#fff', padding: 16, borderRadius: 12, marginBottom: 16 },
   bodyText: { color: '#64748B', marginBottom: 16, lineHeight: 22 },
+  priceLabel: { fontSize: 18, fontWeight: '700', color: '#0F4C81', marginBottom: 16 },
+  qtyContainer: { marginBottom: 16 },
   fallbackBox: { marginTop: 16, backgroundColor: '#FEF3C7', padding: 16, borderRadius: 8, borderWidth: 1, borderColor: '#F59E0B' },
   warningTitle: { fontWeight: '700', color: '#B45309', marginBottom: 8 },
   card: { backgroundColor: '#0F4C81', padding: 16, borderRadius: 12, marginBottom: 12 },
   cardTitle: { color: '#fff', fontWeight: '700', fontSize: 16, marginBottom: 4 },
   cardBody: { color: '#00A896', fontSize: 14 },
+  badge: { fontSize: 10, fontWeight: '700', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, overflow: 'hidden' },
+  badgeGreen: { backgroundColor: '#D1FAE5', color: '#065F46' },
+  badgeAmber: { backgroundColor: '#FEF3C7', color: '#92400E' },
+  qrBox: { backgroundColor: '#F1F5F9', padding: 20, borderRadius: 12, alignItems: 'center', marginBottom: 16, borderWidth: 1, borderColor: '#CBD5E1' },
+  qrCodeText: { fontSize: 12, color: '#64748B', fontWeight: '700', marginBottom: 4 },
+  qrCodeSub: { fontSize: 14, fontWeight: '800', color: '#0F4C81' },
+  detailText: { fontSize: 15, color: '#334155', marginBottom: 6 },
   navBar: { flexDirection: 'row', backgroundColor: '#0F4C81', paddingVertical: 12, borderTopWidth: 1, borderColor: '#1E293B' },
   navItem: { flex: 1, alignItems: 'center' },
   navText: { color: '#fff', fontWeight: '600' },

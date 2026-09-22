@@ -14,6 +14,9 @@ import {
 import { getApiBaseUrl } from './src/config/apiConfig';
 import { QRCodeView } from './src/components/QRCodeView';
 import { PaymentServiceAdapter, PaymentState } from './src/services/paymentService';
+import { AuthStorageService } from './src/services/authStorage';
+
+export type AuthState = 'AUTHENTICATION_CHECKING' | 'AUTHENTICATION_REQUIRED' | 'AUTHENTICATED';
 
 interface CustomerProfile {
   id?: string;
@@ -88,6 +91,7 @@ interface LiveGPSJourney {
 }
 
 export default function App() {
+  const [authState, setAuthState] = useState<AuthState>('AUTHENTICATION_CHECKING');
   const [token, setToken] = useState<string | null>(null);
   const [mobileNumber, setMobileNumber] = useState('');
   const [otp, setOtp] = useState('');
@@ -145,6 +149,32 @@ export default function App() {
   const [remainingTimeStr, setRemainingTimeStr] = useState<string>('');
 
   const API_BASE = getApiBaseUrl();
+
+  // Task 1 & 3: Startup Stored Session Restoration & Auth Check
+  useEffect(() => {
+    let isMounted = true;
+    const restoreSession = async () => {
+      try {
+        const storedToken = await AuthStorageService.getToken();
+        if (isMounted) {
+          if (storedToken) {
+            setToken(storedToken);
+            setAuthState('AUTHENTICATED');
+          } else {
+            setAuthState('AUTHENTICATION_REQUIRED');
+          }
+        }
+      } catch {
+        if (isMounted) {
+          setAuthState('AUTHENTICATION_REQUIRED');
+        }
+      }
+    };
+    restoreSession();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // 48-Hour Expiry Countdown Effect (UI Countdown display only - backend is authoritative)
   useEffect(() => {
@@ -393,13 +423,13 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (token) {
+    if (token && authState === 'AUTHENTICATED') {
       fetchCatalogue();
       fetchProfile();
       fetchSubscriptionInfo();
       fetchBookingHistory();
     }
-  }, [token]);
+  }, [token, authState]);
 
   const handleSendOTP = async () => {
     if (!mobileNumber || mobileNumber.trim().length < 10) {
@@ -442,8 +472,11 @@ export default function App() {
         body: JSON.stringify({ mobileNumber: mobileNumber.trim(), otp: otp.trim() }),
       });
       const data = await res.json();
-      if (data.success) {
-        setToken(data.data.token);
+      if (data.success && data.data?.token) {
+        const verifiedToken = data.data.token;
+        await AuthStorageService.saveToken(verifiedToken);
+        setToken(verifiedToken);
+        setAuthState('AUTHENTICATED');
       } else {
         Alert.alert('Authentication Failed', data.error?.message || 'Invalid OTP code.');
       }
@@ -455,7 +488,8 @@ export default function App() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await AuthStorageService.clearToken();
     setToken(null);
     setMobileNumber('');
     setOtp('');
@@ -463,6 +497,7 @@ export default function App() {
     setProfile(null);
     setLatestBooking(null);
     setBookingHistory([]);
+    setAuthState('AUTHENTICATION_REQUIRED');
     setCurrentTab('HOME');
   };
 
@@ -609,8 +644,22 @@ export default function App() {
     return matchesSearch && matchesCat;
   });
 
-  // Auth Screen Flow
-  if (!token) {
+  // State 1: AUTHENTICATION_CHECKING Splash Loading View
+  if (authState === 'AUTHENTICATION_CHECKING') {
+    return (
+      <SafeAreaView style={styles.authContainer}>
+        <Text style={styles.title}>PONDFISH</Text>
+        <Text style={styles.subtitle}>Fresh & Live Fish Retail App</Text>
+        <ActivityIndicator size="large" color="#00A896" style={{ marginTop: 24 }} />
+        <Text style={{ color: '#E0F2FE', textAlign: 'center', marginTop: 12, fontSize: 13 }}>
+          Restoring session...
+        </Text>
+      </SafeAreaView>
+    );
+  }
+
+  // State 2: AUTHENTICATION_REQUIRED OTP Screen Flow
+  if (authState === 'AUTHENTICATION_REQUIRED' || !token) {
     return (
       <SafeAreaView style={styles.authContainer}>
         <Text style={styles.title}>PONDFISH</Text>
@@ -650,6 +699,7 @@ export default function App() {
     );
   }
 
+  // State 3: AUTHENTICATED Application Flow
   return (
     <SafeAreaView style={styles.container}>
       {/* Header Bar with Profile summary & Logout */}

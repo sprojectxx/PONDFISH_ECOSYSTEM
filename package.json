@@ -22,9 +22,10 @@
     "build:worker": "npm run build --workspace=worker-portal",
     "build:admin": "npm run build --workspace=admin-portal",
     "build:tv": "npm run build --workspace=tv-portal",
-    "build:all": "npm run build:backend && npm run build:website && npm run build:worker && npm run build:admin && npm run build:tv",
+    "typecheck:customer": "npm run typecheck --workspace=customer-app",
+    "build:all": "npm run build:backend && npm run build:website && npm run build:worker && npm run build:admin && npm run build:tv && npm run typecheck:customer",
     "test:backend": "npm run test --workspace=backend",
-    "test:all": "npm run test:backend"
+    "test:all": "npm run test:backend && npm run typecheck:customer"
   },
   "devDependencies": {
     "typescript": "^5.3.3"

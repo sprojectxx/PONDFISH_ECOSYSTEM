@@ -22,10 +22,16 @@
     "build:worker": "npm run build --workspace=worker-portal",
     "build:admin": "npm run build --workspace=admin-portal",
     "build:tv": "npm run build --workspace=tv-portal",
+    "typecheck:backend": "tsc --noEmit --project backend/tsconfig.json",
+    "typecheck:website": "tsc --noEmit --project public-website/tsconfig.json",
+    "typecheck:worker": "tsc --noEmit --project worker-portal/tsconfig.json",
+    "typecheck:admin": "tsc --noEmit --project admin-portal/tsconfig.json",
+    "typecheck:tv": "tsc --noEmit --project tv-portal/tsconfig.json",
     "typecheck:customer": "npm run typecheck --workspace=customer-app",
+    "typecheck:all": "npm run typecheck:backend && npm run typecheck:website && npm run typecheck:worker && npm run typecheck:admin && npm run typecheck:tv && npm run typecheck:customer",
     "build:all": "npm run build:backend && npm run build:website && npm run build:worker && npm run build:admin && npm run build:tv && npm run typecheck:customer",
     "test:backend": "npm run test --workspace=backend",
-    "test:all": "npm run test:backend && npm run typecheck:customer"
+    "test:all": "npm run test:backend"
   },
   "devDependencies": {
     "typescript": "^5.3.3"

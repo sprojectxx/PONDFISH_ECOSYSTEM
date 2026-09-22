@@ -12,6 +12,7 @@ build/
 out/
 *.apk
 *.aab
+*.tsbuildinfo
 
 # Environment variables
 .env

@@ -14,14 +14,14 @@ export class TransactionModule {
     const extraAmountPayable = Math.max(0, params.totalBillAmount - subCreditUsed);
 
     // Gateway Fee & 18% GST calculation
-    const razorpayGatewayFee = extraAmountPayable > 0 ? (extraAmountPayable * feePercent) / 100 : 0.0;
-    const gstOnFee18 = extraAmountPayable > 0 ? razorpayGatewayFee * 0.18 : 0.0;
-    const finalPaidAmount = extraAmountPayable + razorpayGatewayFee + gstOnFee18;
+    const razorpayGatewayFee = extraAmountPayable > 0 ? Number(((extraAmountPayable * feePercent) / 100).toFixed(2)) : 0.0;
+    const gstOnFee18 = extraAmountPayable > 0 ? Number((razorpayGatewayFee * 0.18).toFixed(2)) : 0.0;
+    const finalPaidAmount = Number((extraAmountPayable + razorpayGatewayFee + gstOnFee18).toFixed(2));
 
     return {
-      totalBillAmount: params.totalBillAmount,
-      subCreditUsed,
-      extraAmountPayable,
+      totalBillAmount: Number(params.totalBillAmount.toFixed(2)),
+      subCreditUsed: Number(subCreditUsed.toFixed(2)),
+      extraAmountPayable: Number(extraAmountPayable.toFixed(2)),
       razorpayGatewayFee,
       gstOnFee18,
       finalPaidAmount,

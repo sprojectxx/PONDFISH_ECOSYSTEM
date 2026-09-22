@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { FishItem, ApiResponse } from '../../types';
 import { LoadingState, ErrorState } from '../../components/UIStates';
+import { getApiBaseUrl } from '../../utils/apiConfig';
 
 export default function BookingEntryPage() {
   const router = useRouter();
@@ -13,7 +14,7 @@ export default function BookingEntryPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+  const API_BASE = getApiBaseUrl();
 
   useEffect(() => {
     if (fishId && typeof fishId === 'string') {
@@ -31,6 +32,8 @@ export default function BookingEntryPage() {
             } else {
               setSelectedFish(data.data);
             }
+          } else {
+            throw new Error(data.error?.message || 'Fish record not found.');
           }
         })
         .catch((err) => {
@@ -54,9 +57,9 @@ export default function BookingEntryPage() {
         <p>Transition from public discovery to authenticated customer stock reservation.</p>
       </section>
 
-      <div className="main-container" style={{ maxWidth: '640px' }}>
+      <div className="main-container-sm">
         
-        {loading && <LoadingState message="Verifying fish booking eligibility..." />}
+        {loading && <LoadingState message="Checking booking eligibility..." />}
 
         {error && !loading && (
           <ErrorState
@@ -68,25 +71,23 @@ export default function BookingEntryPage() {
 
         {!loading && !error && selectedFish && (
           <div className="pf-card">
-            <span className="badge badge-green" style={{ alignSelf: 'flex-start', marginBottom: '0.75rem' }}>
+            <span className="badge badge-green mb-sm" style={{ alignSelf: 'flex-start' }}>
               Eligible for 48-Hour Reservation
             </span>
-            <h2 style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--pond-navy)', marginBottom: '0.5rem' }}>
-              {selectedFish.name}
-            </h2>
-            <div style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--pond-blue)', marginBottom: '1rem' }}>
+            <h2 className="card-title mb-sm">{selectedFish.name}</h2>
+            <div className="card-price mb-md" style={{ color: 'var(--pond-blue)' }}>
               Rate: ₹{selectedFish.unitPrice} / kg
             </div>
 
-            <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', lineHeight: 1.5, marginBottom: '1.5rem' }}>
+            <p className="card-description mb-lg">
               Submitting a booking request reserves physical inventory for 48 elapsed hours. Authenticated customer credentials are required to complete reservation.
             </p>
 
-            <div style={{ display: 'flex', gap: '1rem' }}>
-              <Link href="/fish" className="btn btn-secondary" style={{ flex: 1, textAlign: 'center' }}>
+            <div className="flex-row-gap">
+              <Link href="/fish" className="btn btn-secondary flex-1">
                 Back to Catalogue
               </Link>
-              <Link href={`/contact`} className="btn btn-primary" style={{ flex: 1, textAlign: 'center' }}>
+              <Link href="/contact" className="btn btn-primary flex-1">
                 Store Directions
               </Link>
             </div>
@@ -94,12 +95,10 @@ export default function BookingEntryPage() {
         )}
 
         {!loading && !error && !selectedFish && (
-          <div className="pf-card" style={{ textAlign: 'center', padding: '2.5rem 1.5rem' }}>
-            <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}>📋</div>
-            <h2 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '0.5rem' }}>
-              Select a Fish to Reserve
-            </h2>
-            <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
+          <div className="pf-card text-center" style={{ padding: '2.5rem 1.5rem' }}>
+            <div style={{ fontSize: '2.5rem' }} className="mb-sm" aria-hidden="true">📋</div>
+            <h2 className="card-title mb-sm">Select a Fish to Reserve</h2>
+            <p className="card-description mb-lg">
               Choose an online-bookable fish from our catalogue to begin the 48-hour stock reservation flow.
             </p>
             <Link href="/fish" className="btn btn-primary">

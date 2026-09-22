@@ -15,30 +15,26 @@ export default function ContactPage() {
         <p>Visit our physical store or reach out to customer support.</p>
       </section>
 
-      <div className="main-container" style={{ maxWidth: '800px' }}>
-        <div className="card-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
+      <div className="main-container-narrow">
+        <div className="card-grid">
           
           <div className="pf-card">
-            <div style={{ fontSize: '2rem', marginBottom: '0.75rem' }}>📍</div>
-            <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--pond-navy)', marginBottom: '0.5rem' }}>
-              Physical Store Location
-            </h2>
-            <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', lineHeight: 1.6, marginBottom: '1rem' }}>
+            <div style={{ fontSize: '2rem' }} className="mb-sm" aria-hidden="true">📍</div>
+            <h2 className="card-title">Physical Store Location</h2>
+            <p className="card-description">
               Main Fish Retail Store<br />
               Equipped with live aerated tanks, digital weighing scale integration, and worker tablet QR verification.
             </p>
           </div>
 
           <div className="pf-card">
-            <div style={{ fontSize: '2rem', marginBottom: '0.75rem' }}>⏰</div>
-            <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--pond-navy)', marginBottom: '0.5rem' }}>
-              Store Hours & Assistance
-            </h2>
-            <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', lineHeight: 1.6, marginBottom: '1rem' }}>
+            <div style={{ fontSize: '2rem' }} className="mb-sm" aria-hidden="true">⏰</div>
+            <h2 className="card-title">Store Hours & Assistance</h2>
+            <p className="card-description mb-md">
               Open daily during regular retail store operating hours.<br />
               Customer support assistance available during open store hours.
             </p>
-            <Link href="/fish" className="btn btn-primary" style={{ width: '100%', textAlign: 'center' }}>
+            <Link href="/fish" className="btn btn-primary btn-full">
               Browse Catalogue
             </Link>
           </div>

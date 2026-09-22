@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { DiscountOffer, ApiResponse } from '../../types';
 import { LoadingState, EmptyState, ErrorState } from '../../components/UIStates';
+import { getApiBaseUrl } from '../../utils/apiConfig';
 
 export default function DiscountsPage() {
   const router = useRouter();
@@ -11,20 +12,20 @@ export default function DiscountsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+  const API_BASE = getApiBaseUrl();
 
   const loadDiscounts = async () => {
     setLoading(true);
     setError(null);
     try {
       const res = await fetch(`${API_BASE}/api/v1/public/discounts`);
-      if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
+      if (!res.ok) throw new Error(`Server error (${res.status}) fetching active offers.`);
 
       const data: ApiResponse<DiscountOffer[]> = await res.json();
       if (data.success) {
         setDiscounts(data.data || []);
       } else {
-        throw new Error(data.error?.message || 'Failed to load offers');
+        throw new Error(data.error?.message || 'Failed to load active offers.');
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Unable to load active discounts.';
@@ -52,7 +53,7 @@ export default function DiscountsPage() {
 
       <div className="main-container">
         {loading && <LoadingState message="Loading active store offers..." />}
-        {error && !loading && <ErrorState message={error} onRetry={loadDiscounts} />}
+        {error && !loading && <ErrorState title="Offers Unavailable" message={error} onRetry={loadDiscounts} />}
 
         {!loading && !error && discounts.length === 0 && (
           <EmptyState
@@ -66,10 +67,10 @@ export default function DiscountsPage() {
         {!loading && !error && discounts.length > 0 && (
           <div className="card-grid">
             {discounts.map((offer) => (
-              <div key={offer.id} className="pf-card" style={{ borderLeft: '4px solid var(--offer-coral)' }}>
+              <div key={offer.id} className="pf-card pf-card-offer">
                 <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-                    <span className="badge" style={{ backgroundColor: 'rgba(244, 63, 94, 0.12)', color: 'var(--offer-coral)', border: '1px solid rgba(244, 63, 94, 0.3)' }}>
+                  <div className="card-header-meta">
+                    <span className="badge badge-coral">
                       {offer.discountPercent ? `${offer.discountPercent}% OFF` : `₹${offer.flatDiscountAmount} OFF`}
                     </span>
                     <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
@@ -77,18 +78,15 @@ export default function DiscountsPage() {
                     </span>
                   </div>
 
-                  <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--pond-navy)', marginBottom: '0.35rem' }}>
-                    Code: {offer.discountCode}
-                  </h3>
-
-                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.25rem', lineHeight: 1.5 }}>
+                  <h3 className="card-title">Code: {offer.discountCode}</h3>
+                  <p className="card-description">
                     {offer.description || 'Promotional discount applicable to qualifying fish purchases.'}
                   </p>
                 </div>
 
-                <div style={{ borderTop: '1px solid var(--border)', paddingTop: '0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Active Offer</span>
-                  <Link href="/fish" className="btn btn-primary" style={{ padding: '0.4rem 0.85rem', fontSize: '0.85rem' }}>
+                <div className="card-footer">
+                  <span className="card-price-unit">Active Offer</span>
+                  <Link href="/fish" className="btn btn-primary btn-sm">
                     Shop & Apply
                   </Link>
                 </div>

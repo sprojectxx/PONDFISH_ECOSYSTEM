@@ -4,12 +4,12 @@ interface LoadingStateProps {
   message?: string;
 }
 
-export function LoadingState({ message = 'Loading catalog data...' }: LoadingStateProps) {
+export function LoadingState({ message = 'Loading current availability...' }: LoadingStateProps) {
   return (
     <div className="state-container" aria-live="polite">
-      <div className="state-icon">⏳</div>
+      <div className="state-icon" aria-hidden="true">⏳</div>
       <div className="state-title">{message}</div>
-      <div className="state-description">Connecting to server for real-time inventory updates.</div>
+      <div className="state-description">Fetching store catalogue inventory details.</div>
     </div>
   );
 }
@@ -22,18 +22,18 @@ interface EmptyStateProps {
 }
 
 export function EmptyState({
-  title = 'No Fish Available',
-  description = 'There are currently no items matching your criteria in the store catalogue.',
+  title = 'No Items Available',
+  description = 'There are currently no items matching your request in the store catalogue.',
   actionLabel,
   onAction,
 }: EmptyStateProps) {
   return (
     <div className="state-container">
-      <div className="state-icon">🐟</div>
+      <div className="state-icon" aria-hidden="true">🐟</div>
       <div className="state-title">{title}</div>
       <div className="state-description">{description}</div>
       {actionLabel && onAction && (
-        <button onClick={onAction} className="btn btn-primary">
+        <button onClick={onAction} className="btn btn-primary" type="button">
           {actionLabel}
         </button>
       )}
@@ -49,17 +49,17 @@ interface ErrorStateProps {
 
 export function ErrorState({
   title = 'Unable to Load Data',
-  message = 'We encountered an issue connecting to the PondFish backend API. Please check your network or try again.',
+  message = 'We encountered an issue retrieving data from the store server.',
   onRetry,
 }: ErrorStateProps) {
   return (
-    <div className="state-container" role="alert">
-      <div className="state-icon">⚠️</div>
+    <div className="state-container state-error" role="alert">
+      <div className="state-icon" aria-hidden="true">⚠️</div>
       <div className="state-title">{title}</div>
       <div className="state-description">{message}</div>
       {onRetry && (
-        <button onClick={onRetry} className="btn btn-primary">
-          Try Again
+        <button onClick={onRetry} className="btn btn-primary" type="button" aria-label="Retry loading failed data">
+          Retry
         </button>
       )}
     </div>

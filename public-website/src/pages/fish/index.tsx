@@ -3,6 +3,7 @@ import Head from 'next/head';
 import Link from 'next/link';
 import { FishItem, Category, ApiResponse } from '../../types';
 import { LoadingState, EmptyState, ErrorState } from '../../components/UIStates';
+import { getApiBaseUrl } from '../../utils/apiConfig';
 
 export default function FishCataloguePage() {
   const [fishList, setFishList] = useState<FishItem[]>([]);
@@ -13,7 +14,7 @@ export default function FishCataloguePage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
 
-  const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+  const API_BASE = getApiBaseUrl();
 
   const loadCatalogue = async () => {
     setLoading(true);
@@ -24,13 +25,13 @@ export default function FishCataloguePage() {
         fetch(`${API_BASE}/api/v1/public/categories`),
       ]);
 
-      if (!fishRes.ok) throw new Error(`HTTP Error ${fishRes.status}`);
+      if (!fishRes.ok) throw new Error(`Server error (${fishRes.status}) loading fish catalogue.`);
 
       const fishData: ApiResponse<FishItem[]> = await fishRes.json();
       if (fishData.success) {
         setFishList(fishData.data || []);
       } else {
-        throw new Error(fishData.error?.message || 'Failed to fetch catalogue');
+        throw new Error(fishData.error?.message || 'Failed to fetch catalogue.');
       }
 
       if (catRes.ok) {
@@ -38,7 +39,7 @@ export default function FishCataloguePage() {
         if (catData.success) setCategories(catData.data || []);
       }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Network error loading fish catalogue.';
+      const msg = err instanceof Error ? err.message : 'Network failure loading fish catalogue.';
       console.error('Catalogue fetch error:', err);
       setError(msg);
     } finally {
@@ -71,14 +72,14 @@ export default function FishCataloguePage() {
 
       <div className="main-container">
         {/* Search & Filter Bar */}
-        <div style={{ background: 'var(--surface)', padding: '1.25rem', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border)', marginBottom: '2rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+        <div className="filter-bar">
+          <div className="search-group">
             <input
               type="text"
               placeholder="🔍 Search fish by name..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              style={{ flex: 1, minWidth: '220px', padding: '0.65rem 1rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', fontSize: '0.95rem' }}
+              className="search-input"
               aria-label="Search fish catalogue"
             />
             {searchQuery && (
@@ -90,11 +91,10 @@ export default function FishCataloguePage() {
 
           {/* Category Filter Pills */}
           {categories.length > 0 && (
-            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <div className="filter-pills">
               <button
                 onClick={() => setSelectedCategory('ALL')}
-                className={`btn ${selectedCategory === 'ALL' ? 'btn-primary' : 'btn-secondary'}`}
-                style={{ padding: '0.35rem 0.85rem', fontSize: '0.85rem' }}
+                className={`btn btn-sm ${selectedCategory === 'ALL' ? 'btn-primary' : 'btn-secondary'}`}
               >
                 All Categories
               </button>
@@ -102,8 +102,7 @@ export default function FishCataloguePage() {
                 <button
                   key={cat.id}
                   onClick={() => setSelectedCategory(cat.id)}
-                  className={`btn ${selectedCategory === cat.id ? 'btn-primary' : 'btn-secondary'}`}
-                  style={{ padding: '0.35rem 0.85rem', fontSize: '0.85rem' }}
+                  className={`btn btn-sm ${selectedCategory === cat.id ? 'btn-primary' : 'btn-secondary'}`}
                 >
                   {cat.name}
                 </button>
@@ -113,8 +112,8 @@ export default function FishCataloguePage() {
         </div>
 
         {/* Loading / Error States */}
-        {loading && <LoadingState message="Fetching live fish inventory..." />}
-        {error && !loading && <ErrorState message={error} onRetry={loadCatalogue} />}
+        {loading && <LoadingState message="Loading fish availability..." />}
+        {error && !loading && <ErrorState title="Catalogue Unavailable" message={error} onRetry={loadCatalogue} />}
 
         {/* Empty State */}
         {!loading && !error && filteredFish.length === 0 && (
@@ -132,7 +131,7 @@ export default function FishCataloguePage() {
             {filteredFish.map((fish) => (
               <div key={fish.id} className="pf-card">
                 <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                  <div className="card-header-meta">
                     <span className={`badge ${fish.freshnessState === 'GREEN' ? 'badge-green' : 'badge-amber'}`}>
                       {fish.freshnessState === 'GREEN' ? 'Fresh' : 'Standard'}
                     </span>
@@ -143,21 +142,21 @@ export default function FishCataloguePage() {
                     )}
                   </div>
 
-                  <h3 style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: '0.35rem' }}>{fish.name}</h3>
-                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.25rem', lineHeight: 1.5 }}>
+                  <h3 className="card-title">{fish.name}</h3>
+                  <p className="card-description">
                     {fish.description || 'Freshwater catch available in store.'}
                   </p>
                 </div>
 
-                <div style={{ borderTop: '1px solid var(--border)', paddingTop: '0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div className="card-footer">
                   <div>
-                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>Unit Price</span>
-                    <span style={{ fontSize: '1.3rem', fontWeight: 800, color: 'var(--pond-navy)' }}>
-                      ₹{fish.unitPrice} <span style={{ fontSize: '0.8rem', fontWeight: 400, color: 'var(--text-muted)' }}>/ kg</span>
+                    <span className="card-price-unit" style={{ display: 'block' }}>Unit Price</span>
+                    <span className="card-price">
+                      ₹{fish.unitPrice} <span className="card-price-unit">/ kg</span>
                     </span>
                   </div>
 
-                  <Link href={`/fish/${fish.id}`} className="btn btn-primary" style={{ padding: '0.45rem 1rem', fontSize: '0.85rem' }}>
+                  <Link href={`/fish/${fish.id}`} className="btn btn-primary btn-sm">
                     View Details
                   </Link>
                 </div>

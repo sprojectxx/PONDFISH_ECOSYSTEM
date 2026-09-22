@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { FishItem, Category, ApiResponse } from '../../types';
 import { LoadingState, EmptyState, ErrorState } from '../../components/UIStates';
+import { getApiBaseUrl } from '../../utils/apiConfig';
 
 export default function CategoryDetailPage() {
   const router = useRouter();
@@ -14,7 +15,7 @@ export default function CategoryDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+  const API_BASE = getApiBaseUrl();
 
   const loadCategoryData = async (catId: string) => {
     setLoading(true);
@@ -33,10 +34,12 @@ export default function CategoryDetailPage() {
         }
       }
 
-      if (!fishRes.ok) throw new Error(`HTTP Error ${fishRes.status}`);
+      if (!fishRes.ok) throw new Error(`Server error (${fishRes.status}) loading category fish list.`);
       const fishData: ApiResponse<FishItem[]> = await fishRes.json();
       if (fishData.success && fishData.data) {
         setFishList(fishData.data.filter((f) => f.categoryId === catId));
+      } else {
+        throw new Error(fishData.error?.message || 'Failed to load category fish list.');
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Unable to load category fish list.';
@@ -64,17 +67,17 @@ export default function CategoryDetailPage() {
       </section>
 
       <div className="main-container">
-        <nav aria-label="Breadcrumb" style={{ marginBottom: '1.5rem', fontSize: '0.9rem', color: 'var(--text-muted)' }}>
-          <Link href="/" style={{ color: 'var(--pond-blue)' }}>Home</Link>
-          <span style={{ margin: '0 0.5rem' }}>/</span>
-          <Link href="/categories" style={{ color: 'var(--pond-blue)' }}>Categories</Link>
-          <span style={{ margin: '0 0.5rem' }}>/</span>
-          <span>{category ? category.name : 'Detail'}</span>
+        <nav aria-label="Breadcrumb" className="breadcrumb-nav">
+          <Link href="/" className="breadcrumb-link">Home</Link>
+          <span className="breadcrumb-separator">/</span>
+          <Link href="/categories" className="breadcrumb-link">Categories</Link>
+          <span className="breadcrumb-separator">/</span>
+          <span className="breadcrumb-current">{category ? category.name : 'Detail'}</span>
         </nav>
 
-        {loading && <LoadingState message="Loading category fish data..." />}
+        {loading && <LoadingState message="Loading category fish..." />}
         {error && !loading && (
-          <ErrorState message={error} onRetry={() => id && typeof id === 'string' && loadCategoryData(id)} />
+          <ErrorState title="Category Data Unavailable" message={error} onRetry={() => id && typeof id === 'string' && loadCategoryData(id)} />
         )}
 
         {!loading && !error && fishList.length === 0 && (
@@ -91,7 +94,7 @@ export default function CategoryDetailPage() {
             {fishList.map((fish) => (
               <div key={fish.id} className="pf-card">
                 <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                  <div className="card-header-meta">
                     <span className={`badge ${fish.freshnessState === 'GREEN' ? 'badge-green' : 'badge-amber'}`}>
                       {fish.freshnessState === 'GREEN' ? 'Fresh' : 'Standard'}
                     </span>
@@ -102,18 +105,18 @@ export default function CategoryDetailPage() {
                     )}
                   </div>
 
-                  <h3 style={{ fontSize: '1.15rem', fontWeight: 700, marginBottom: '0.35rem' }}>{fish.name}</h3>
-                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1rem' }}>
+                  <h3 className="card-title">{fish.name}</h3>
+                  <p className="card-description">
                     {fish.description || 'Freshwater catch available in store.'}
                   </p>
                 </div>
 
-                <div style={{ borderTop: '1px solid var(--border)', paddingTop: '0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--pond-navy)' }}>
-                    ₹{fish.unitPrice} <span style={{ fontSize: '0.8rem', fontWeight: 400, color: 'var(--text-muted)' }}>/ kg</span>
+                <div className="card-footer">
+                  <span className="card-price">
+                    ₹{fish.unitPrice} <span className="card-price-unit">/ kg</span>
                   </span>
 
-                  <Link href={`/fish/${fish.id}`} className="btn btn-secondary" style={{ padding: '0.4rem 0.85rem', fontSize: '0.85rem' }}>
+                  <Link href={`/fish/${fish.id}`} className="btn btn-secondary btn-sm">
                     Details
                   </Link>
                 </div>

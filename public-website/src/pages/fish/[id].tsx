@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { FishItem, ApiResponse } from '../../types';
 import { LoadingState, ErrorState } from '../../components/UIStates';
+import { getApiBaseUrl } from '../../utils/apiConfig';
 
 export default function FishDetailPage() {
   const router = useRouter();
@@ -13,7 +14,7 @@ export default function FishDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+  const API_BASE = getApiBaseUrl();
 
   const loadFishDetails = async (fishId: string) => {
     setLoading(true);
@@ -22,7 +23,7 @@ export default function FishDetailPage() {
       const res = await fetch(`${API_BASE}/api/v1/public/fish/${fishId}`);
       if (!res.ok) {
         if (res.status === 404) throw new Error('This fish species is no longer listed in the catalogue.');
-        throw new Error(`HTTP Error ${res.status}`);
+        throw new Error(`Server error (${res.status}) fetching fish detail.`);
       }
 
       const data: ApiResponse<FishItem> = await res.json();
@@ -53,15 +54,15 @@ export default function FishDetailPage() {
 
       <div className="main-container">
         {/* Breadcrumb Navigation */}
-        <nav aria-label="Breadcrumb" style={{ marginBottom: '1.5rem', fontSize: '0.9rem', color: 'var(--text-muted)' }}>
-          <Link href="/" style={{ color: 'var(--pond-blue)' }}>Home</Link>
-          <span style={{ margin: '0 0.5rem' }}>/</span>
-          <Link href="/fish" style={{ color: 'var(--pond-blue)' }}>Fish</Link>
-          <span style={{ margin: '0 0.5rem' }}>/</span>
-          <span>{fish ? fish.name : 'Detail'}</span>
+        <nav aria-label="Breadcrumb" className="breadcrumb-nav">
+          <Link href="/" className="breadcrumb-link">Home</Link>
+          <span className="breadcrumb-separator">/</span>
+          <Link href="/fish" className="breadcrumb-link">Fish</Link>
+          <span className="breadcrumb-separator">/</span>
+          <span className="breadcrumb-current">{fish ? fish.name : 'Detail'}</span>
         </nav>
 
-        {loading && <LoadingState message="Loading fish information..." />}
+        {loading && <LoadingState message="Loading fish details..." />}
         {error && !loading && (
           <ErrorState
             title="Fish Information Unavailable"
@@ -71,17 +72,17 @@ export default function FishDetailPage() {
         )}
 
         {!loading && !error && fish && (
-          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '2rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '2rem' }}>
+          <div className="detail-grid">
             
-            {/* Left Column: Image Container */}
-            <div style={{ background: 'var(--soft-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', height: '280px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '3rem' }}>
+            {/* Left Column: Media Container */}
+            <div className="detail-media">
               🐟
             </div>
 
             {/* Right Column: Fish Attributes */}
-            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+            <div className="detail-content">
               <div>
-                <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                <div className="flex-row-gap mb-sm">
                   <span className={`badge ${fish.freshnessState === 'GREEN' ? 'badge-green' : 'badge-amber'}`}>
                     {fish.freshnessState === 'GREEN' ? 'Fresh Catch' : 'Standard Catch'}
                   </span>
@@ -90,41 +91,41 @@ export default function FishDetailPage() {
                   </span>
                 </div>
 
-                <h1 style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--pond-navy)', marginBottom: '0.5rem' }}>
+                <h1 className="section-title mb-sm" style={{ fontSize: '2rem' }}>
                   {fish.name}
                 </h1>
 
                 {fish.category && (
-                  <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
-                    Category: <strong style={{ color: 'var(--text-primary)' }}>{fish.category.name}</strong>
+                  <div className="card-description mb-md">
+                    Category: <strong className="breadcrumb-current">{fish.category.name}</strong>
                   </div>
                 )}
 
-                <p style={{ color: 'var(--text-primary)', fontSize: '0.95rem', lineHeight: 1.6, marginBottom: '1.5rem' }}>
+                <p className="card-description mb-lg" style={{ fontSize: '0.95rem', color: 'var(--text-primary)' }}>
                   {fish.description || 'Freshwater catch available for physical store pickup.'}
                 </p>
 
-                <div style={{ background: 'var(--soft-surface)', padding: '1rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', marginBottom: '1.5rem' }}>
-                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block' }}>Unit Price Rate</span>
-                  <div style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--pond-navy)' }}>
-                    ₹{fish.unitPrice} <span style={{ fontSize: '0.9rem', fontWeight: 400, color: 'var(--text-muted)' }}>/ kg</span>
+                <div className="price-box">
+                  <span className="card-price-unit" style={{ display: 'block' }}>Unit Price Rate</span>
+                  <div className="card-price" style={{ fontSize: '1.8rem' }}>
+                    ₹{fish.unitPrice} <span className="card-price-unit">/ kg</span>
                   </div>
                 </div>
               </div>
 
               {/* Booking CTA Section */}
-              <div style={{ borderTop: '1px solid var(--border)', paddingTop: '1.25rem' }}>
+              <div className="action-box">
                 {fish.onlineBookable ? (
                   <div>
-                    <span className="badge badge-green" style={{ marginBottom: '0.75rem', display: 'inline-block' }}>
+                    <span className="badge badge-green mb-sm">
                       Eligible for 48-Hour Online Booking
                     </span>
-                    <Link href={`/booking?fishId=${fish.id}`} className="btn btn-primary" style={{ width: '100%', padding: '0.75rem', fontSize: '1rem' }}>
+                    <Link href={`/booking?fishId=${fish.id}`} className="btn btn-primary btn-full">
                       Proceed to Book Stock (48h Window)
                     </Link>
                   </div>
                 ) : (
-                  <div style={{ background: '#F1F5F9', padding: '0.75rem', borderRadius: 'var(--radius-md)', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.9rem', fontWeight: 600 }}>
+                  <div className="card-description text-center" style={{ background: '#F1F5F9', padding: '0.75rem', borderRadius: 'var(--radius-md)', fontWeight: 600 }}>
                     In-Store Purchase Only (Online Booking Disabled)
                   </div>
                 )}

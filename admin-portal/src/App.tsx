@@ -1,9 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { AdminAuthStorageService } from './services/authStorage';
-
-const API_BASE_URL = window.location.origin.includes('5173') || window.location.origin.includes('3000') || window.location.origin.includes('5174')
-  ? 'http://localhost:5000/api/v1'
-  : '/api/v1';
+import { ADMIN_API_CONFIG } from './config/apiConfig';
 
 type AuthState = 'AUTHENTICATION_CHECKING' | 'AUTHENTICATION_REQUIRED' | 'AUTHENTICATED';
 
@@ -13,7 +10,7 @@ export default function App() {
   const [authState, setAuthState] = useState<AuthState>('AUTHENTICATION_CHECKING');
   const [token, setToken] = useState<string | null>(null);
 
-  // Login form state
+  // Login form state - strictly unpopulated initially
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState<string | null>(null);
@@ -34,7 +31,8 @@ export default function App() {
   const [categories, setCategories] = useState<any[]>([]);
   const [fishSearch, setFishSearch] = useState('');
   const [fishCategoryFilter, setFishCategoryFilter] = useState('');
-  // New Fish Form State
+
+  // New Fish Form State - Category loaded from backend dynamically
   const [newFishCategoryId, setNewFishCategoryId] = useState('');
   const [newFishName, setNewFishName] = useState('');
   const [newFishPrice, setNewFishPrice] = useState('250');
@@ -42,6 +40,7 @@ export default function App() {
   const [newFishOnline, setNewFishOnline] = useState(true);
   const [newFishPhysical, setNewFishPhysical] = useState(true);
   const [fishSuccessMsg, setFishSuccessMsg] = useState<string | null>(null);
+
   // Edit Fish State
   const [editingFishId, setEditingFishId] = useState<string | null>(null);
   const [editFishPrice, setEditFishPrice] = useState('');
@@ -64,10 +63,10 @@ export default function App() {
   // Tab 5: Transaction Ledger State
   const [transactions, setTransactions] = useState<any[]>([]);
 
-  // Tab 6: OneLap GPS State
+  // Tab 6: OneLap GPS State - unpopulated truck & driver inputs
   const [activeJourney, setActiveJourney] = useState<any>(null);
-  const [truckNumber, setTruckNumber] = useState('AP-39-TF-1001');
-  const [driverName, setDriverName] = useState('Ramesh Kumar');
+  const [truckNumber, setTruckNumber] = useState('');
+  const [driverName, setDriverName] = useState('');
   const [gpsLat, setGpsLat] = useState('16.5062');
   const [gpsLng, setGpsLng] = useState('80.6480');
   const [gpsSuccessMsg, setGpsSuccessMsg] = useState<string | null>(null);
@@ -81,7 +80,7 @@ export default function App() {
   // Tab 8: Audit Logs State
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
 
-  // Helper fetch with automatic 401 handling
+  // Helper fetch with automatic 401/403 session clearing & error handling
   const apiFetch = useCallback(async (endpoint: string, options: RequestInit = {}) => {
     const currentToken = token || AdminAuthStorageService.getToken();
     const headers: Record<string, string> = {
@@ -92,7 +91,7 @@ export default function App() {
       headers['Authorization'] = `Bearer ${currentToken}`;
     }
 
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    const response = await fetch(`${ADMIN_API_CONFIG.baseUrl}${endpoint}`, {
       ...options,
       headers,
     });
@@ -101,7 +100,7 @@ export default function App() {
       AdminAuthStorageService.clearToken();
       setToken(null);
       setAuthState('AUTHENTICATION_REQUIRED');
-      throw new Error('Session expired. Please sign in again.');
+      throw new Error('Session expired or unauthorized. Please sign in again.');
     }
 
     const data = await response.json();
@@ -112,7 +111,7 @@ export default function App() {
     return data.data;
   }, [token]);
 
-  // Session check on startup
+  // Session check on startup to prevent authenticated content flashing
   useEffect(() => {
     const storedToken = AdminAuthStorageService.getToken();
     if (storedToken) {
@@ -135,7 +134,7 @@ export default function App() {
 
     setIsSubmitting(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/admin/auth/login`, {
+      const res = await fetch(`${ADMIN_API_CONFIG.baseUrl}/admin/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim(), password }),
@@ -159,11 +158,18 @@ export default function App() {
     }
   };
 
-  // Logout handler
+  // Logout handler - purges session, memory token, and resets navigation
   const handleLogout = () => {
     AdminAuthStorageService.clearToken();
     setToken(null);
     setAuthState('AUTHENTICATION_REQUIRED');
+    setActiveTab('ANALYTICS');
+    setAnalytics(null);
+    setFishList([]);
+    setCategories([]);
+    setBookings([]);
+    setTransactions([]);
+    setActiveJourney(null);
   };
 
   // Load Tab Data
@@ -235,6 +241,11 @@ export default function App() {
     e.preventDefault();
     setFishSuccessMsg(null);
     setErrorMsg(null);
+
+    if (!newFishCategoryId) {
+      setErrorMsg('Please select a valid category.');
+      return;
+    }
 
     if (!newFishName.trim()) {
       setErrorMsg('Fish name is required.');
@@ -327,6 +338,10 @@ export default function App() {
 
   // GPS Controller Handlers
   const handleStartGPS = async () => {
+    if (!truckNumber.trim() || !driverName.trim()) {
+      setErrorMsg('Truck vehicle number and driver name are required to start a journey.');
+      return;
+    }
     setIsSubmitting(true);
     setGpsSuccessMsg(null);
     setErrorMsg(null);
@@ -336,7 +351,7 @@ export default function App() {
         body: JSON.stringify({ truckNumber: truckNumber.trim(), driverName: driverName.trim() }),
       });
       setActiveJourney(journey);
-      setGpsSuccessMsg(`Live Truck Journey started for ${truckNumber}!`);
+      setGpsSuccessMsg(`Live Truck Journey started for ${truckNumber.trim()}!`);
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to start GPS journey');
     } finally {
@@ -730,6 +745,7 @@ export default function App() {
                       onChange={(e) => setNewFishCategoryId(e.target.value)}
                       style={{ width: '100%', padding: '0.6rem', borderRadius: '6px', border: '1px solid #cbd5e1' }}
                     >
+                      <option value="">-- Select Category --</option>
                       {categories.map((c) => (
                         <option key={c.id} value={c.id}>{c.name}</option>
                       ))}
@@ -862,6 +878,7 @@ export default function App() {
                       onChange={(e) => setStockFishId(e.target.value)}
                       style={{ width: '100%', padding: '0.6rem', borderRadius: '6px', border: '1px solid #cbd5e1' }}
                     >
+                      <option value="">-- Select Fish --</option>
                       {fishList.map((f) => (
                         <option key={f.id} value={f.id}>{f.name}</option>
                       ))}

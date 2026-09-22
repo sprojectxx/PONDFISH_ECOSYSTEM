@@ -107,13 +107,20 @@ export class TransactionModule {
           throw new DomainError('ERR_INVENTORY_INSUFFICIENT', `Stock deduction conflict for ${fish.name}. Please retry checkout.`, 409);
         }
 
+        // Re-read updated batch inside transaction to record accurate resulting physical quantity
+        const reloadedBatch = await tx.inventoryBatch.findUnique({
+          where: { id: batch.id },
+        });
+
+        const resultingQty = reloadedBatch ? reloadedBatch.physicalQty : Number((batch.physicalQty - item.quantityKg).toFixed(2));
+
         await tx.inventoryLedger.create({
           data: {
             fishId: item.fishId,
             batchId: batch.id,
             changeType: InventoryChangeType.SALE,
             quantityChange: -item.quantityKg,
-            resultingQty: batch.physicalQty - item.quantityKg,
+            resultingQty,
             referenceId: 'STORE_CHECKOUT',
           },
         });
@@ -163,6 +170,10 @@ export class TransactionModule {
       const randomSuffix = crypto.randomBytes(4).toString('hex').toUpperCase();
       const transactionNumber = `TXN-${Date.now()}-${randomSuffix}`;
 
+      // Status lifecycle: Razorpay payments with extra payable amount remain PENDING until payment verification
+      const isRazorpay = data.paymentMethod === PaymentMethod.RAZORPAY;
+      const status = (isRazorpay && calc.extraAmountPayable > 0) ? 'PENDING' : 'COMPLETED';
+
       const transaction = await tx.transaction.create({
         data: {
           transactionNumber,
@@ -176,7 +187,7 @@ export class TransactionModule {
           gstOnFee18: calc.gstOnFee18,
           finalPaidAmount: calc.finalPaidAmount,
           paymentMethod: data.paymentMethod,
-          status: 'COMPLETED',
+          status,
           transactionItems: {
             create: transactionItemsToCreate,
           },

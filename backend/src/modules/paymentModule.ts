@@ -58,6 +58,21 @@ export class PaymentModule {
       },
     });
 
+    // Payment confirmation: update associated Transaction or Booking status
+    if (data.transactionId) {
+      await prisma.transaction.update({
+        where: { id: data.transactionId },
+        data: { status: 'COMPLETED' },
+      });
+    }
+
+    if (data.bookingId) {
+      await prisma.booking.update({
+        where: { id: data.bookingId },
+        data: { status: 'CONFIRMED' },
+      });
+    }
+
     return payment;
   }
 }

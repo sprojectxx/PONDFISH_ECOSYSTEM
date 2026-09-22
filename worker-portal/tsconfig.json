@@ -15,7 +15,7 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "noImplicitReturns": true,
-    "types": ["node"]
+    "types": ["node", "jest"]
   },
   "include": ["src"]
 }

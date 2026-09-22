@@ -6,6 +6,9 @@ import { RealtimeModule } from '../modules/realtimeModule';
 import { authenticateJWT, requireRole } from '../middleware/authMiddleware';
 import { sendSuccess } from '../utils/response';
 
+import { BookingStatus } from '@prisma/client';
+import { DomainError } from '../middleware/errorHandler';
+
 const router = Router();
 
 // Worker Auth (Unprotected)
@@ -25,8 +28,21 @@ router.use(authenticateJWT, requireRole(['WORKER', 'ADMIN']));
 router.get('/bookings', async (req, res, next) => {
   try {
     const search = req.query.search as string | undefined;
-    const status = req.query.status as any | undefined;
-    const bookings = await BookingModule.getWorkerBookings({ search, status });
+    const rawStatus = req.query.status as string | undefined;
+
+    let validatedStatus: BookingStatus | undefined = undefined;
+    if (rawStatus && rawStatus !== 'ALL') {
+      if (!Object.values(BookingStatus).includes(rawStatus as BookingStatus)) {
+        throw new DomainError(
+          'ERR_INVALID_STATUS',
+          `Invalid booking status filter: '${rawStatus}'. Allowed values: ${Object.values(BookingStatus).join(', ')}`,
+          400
+        );
+      }
+      validatedStatus = rawStatus as BookingStatus;
+    }
+
+    const bookings = await BookingModule.getWorkerBookings({ search, status: validatedStatus });
     return sendSuccess(res, bookings, 'Worker bookings retrieved successfully');
   } catch (err) {
     next(err);

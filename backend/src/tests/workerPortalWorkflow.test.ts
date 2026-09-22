@@ -79,6 +79,20 @@ describe('Worker Portal Operations & Workflow Unit Tests', () => {
         })
       );
     });
+
+    it('filters bookings by valid BookingStatus enum values', async () => {
+      (prisma.booking.findMany as jest.Mock).mockResolvedValueOnce([]);
+
+      await BookingModule.getWorkerBookings({ status: BookingStatus.PENDING });
+
+      expect(prisma.booking.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            status: BookingStatus.PENDING,
+          }),
+        })
+      );
+    });
   });
 
   describe('3. Booking Pickup Completion Rules', () => {

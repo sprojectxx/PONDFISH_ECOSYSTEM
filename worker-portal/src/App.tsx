@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { getWorkerApiBaseUrl } from './config/apiConfig';
+import { WorkerAuthStorageService } from './services/authStorage';
+
+export type AuthState = 'AUTHENTICATION_CHECKING' | 'AUTHENTICATION_REQUIRED' | 'AUTHENTICATED';
 
 interface FishItem {
   id: string;
@@ -37,6 +40,7 @@ interface Booking {
 }
 
 export default function App() {
+  const [authState, setAuthState] = useState<AuthState>('AUTHENTICATION_CHECKING');
   const [token, setToken] = useState<string | null>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -67,6 +71,21 @@ export default function App() {
   const [lastTxnResult, setLastTxnResult] = useState<any>(null);
 
   const API_BASE_URL = getWorkerApiBaseUrl();
+
+  // Startup Session Restoration
+  useEffect(() => {
+    try {
+      const storedToken = WorkerAuthStorageService.getToken();
+      if (storedToken) {
+        setToken(storedToken);
+        setAuthState('AUTHENTICATED');
+      } else {
+        setAuthState('AUTHENTICATION_REQUIRED');
+      }
+    } catch {
+      setAuthState('AUTHENTICATION_REQUIRED');
+    }
+  }, []);
 
   // Fetch Bookings from Backend API
   const fetchBookings = async () => {
@@ -111,20 +130,20 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (token) {
+    if (token && authState === 'AUTHENTICATED') {
       fetchBookings();
       fetchFishCatalogue();
     }
-  }, [token]);
+  }, [token, authState]);
 
   // Trigger search on query or filter change
   useEffect(() => {
-    if (!token) return;
+    if (!token || authState !== 'AUTHENTICATED') return;
     const timer = setTimeout(() => {
       fetchBookings();
     }, 300);
     return () => clearTimeout(timer);
-  }, [searchQuery, statusFilter, token]);
+  }, [searchQuery, statusFilter, token, authState]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -142,7 +161,10 @@ export default function App() {
       });
       const data = await res.json();
       if (res.ok && data.success && data.data?.token) {
-        setToken(data.data.token);
+        const verifiedToken = data.data.token;
+        WorkerAuthStorageService.saveToken(verifiedToken);
+        setToken(verifiedToken);
+        setAuthState('AUTHENTICATED');
       } else {
         setErrorMsg(data.error?.message || 'Worker login failed.');
       }
@@ -154,6 +176,7 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    WorkerAuthStorageService.clearToken();
     setToken(null);
     setEmail('');
     setPassword('');
@@ -161,6 +184,7 @@ export default function App() {
     setBookings([]);
     setLastCompletedBooking(null);
     setLastTxnResult(null);
+    setAuthState('AUTHENTICATION_REQUIRED');
   };
 
   /**
@@ -246,8 +270,18 @@ export default function App() {
     }
   };
 
-  // Auth Screen
-  if (!token) {
+  // State 1: AUTHENTICATION_CHECKING Splash Loading View
+  if (authState === 'AUTHENTICATION_CHECKING') {
+    return (
+      <div style={{ display: 'flex', minHeight: '100vh', justifyContent: 'center', alignItems: 'center', backgroundColor: '#0f172a', color: '#fff', flexDirection: 'column' }}>
+        <h2 style={{ fontSize: '2rem', color: '#00a896', margin: 0 }}>PONDFISH WORKER PORTAL</h2>
+        <p style={{ color: '#94a3b8', marginTop: '0.5rem' }}>Restoring worker station session...</p>
+      </div>
+    );
+  }
+
+  // State 2: AUTHENTICATION_REQUIRED Login Screen
+  if (authState === 'AUTHENTICATION_REQUIRED' || !token) {
     return (
       <div style={{ display: 'flex', minHeight: '100vh', justifyContent: 'center', alignItems: 'center', backgroundColor: '#0f172a' }}>
         <form onSubmit={handleLogin} style={{ background: '#fff', padding: '2.5rem', borderRadius: '12px', width: '380px', boxShadow: '0 10px 25px rgba(0,0,0,0.2)' }}>
@@ -290,13 +324,14 @@ export default function App() {
     );
   }
 
+  // State 3: AUTHENTICATED Worker Station
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', backgroundColor: '#f8fafc', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
       {/* Header Bar */}
       <header style={{ background: '#0f4c81', color: '#fff', padding: '1rem 2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800 }}>PONDFISH STORE WORKER TABLET</h2>
-          <p style={{ margin: '0.2rem 0 0 0', fontSize: '0.8rem', color: '#00a896' }}>Worker: {email}</p>
+          <p style={{ margin: '0.2rem 0 0 0', fontSize: '0.8rem', color: '#00a896' }}>Worker Session Active</p>
         </div>
 
         <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>

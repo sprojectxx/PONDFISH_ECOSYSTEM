@@ -3,27 +3,12 @@
 /**
  * Centralized API Configuration for PondFish Admin Portal (Vite + React)
  *
- * Supports dynamic environment configuration via import.meta.env.VITE_API_BASE_URL
+ * Supports dynamic environment configuration via VITE_API_BASE_URL
  * with explicit local development fallback.
  */
 
 export const getAdminApiBaseUrl = (): string => {
-  let envUrl: string | undefined;
-
-  if (typeof process !== 'undefined' && process.env && process.env.VITE_API_BASE_URL) {
-    envUrl = process.env.VITE_API_BASE_URL;
-  }
-
-  if (!envUrl) {
-    try {
-      const metaEnv = Function('try { return import.meta.env; } catch { return undefined; }')();
-      if (metaEnv && metaEnv.VITE_API_BASE_URL) {
-        envUrl = metaEnv.VITE_API_BASE_URL;
-      }
-    } catch {
-      // Safe fallback when import.meta is unavailable
-    }
-  }
+  const envUrl = typeof process !== 'undefined' && process.env ? process.env.VITE_API_BASE_URL : undefined;
 
   if (envUrl && typeof envUrl === 'string' && envUrl.trim().length > 0) {
     return envUrl.trim().replace(/\/$/, '');

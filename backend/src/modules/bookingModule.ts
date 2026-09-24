@@ -9,6 +9,23 @@ export class BookingModule {
     useSubscriptionCredit?: boolean;
   }) {
     return await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      // Normalize & aggregate duplicate items by fishId to guarantee unique (bookingCode, fishId) reservations
+      const itemMap = new Map<string, number>();
+      for (const item of data.items || []) {
+        if (!item.fishId || item.quantityKg <= 0) continue;
+        const currentKg = itemMap.get(item.fishId) || 0;
+        itemMap.set(item.fishId, currentKg + item.quantityKg);
+      }
+
+      const normalizedItems = Array.from(itemMap.entries()).map(([fishId, quantityKg]) => ({
+        fishId,
+        quantityKg,
+      }));
+
+      if (normalizedItems.length === 0) {
+        throw new DomainError('ERR_INVALID_INPUT', 'Booking must contain at least one valid item with positive quantity.', 400);
+      }
+
       let totalAmount = 0.0;
       const bookingItemsToCreate: Array<{ fishId: string; quantityKg: number; unitPrice: number; subtotal: number }> = [];
       const bookingCode = 'BK-' + Math.random().toString(36).substring(2, 8).toUpperCase();
@@ -16,13 +33,13 @@ export class BookingModule {
       // Expiry duration strictly set to 48 elapsed hours from creation
       const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
 
-      for (const item of data.items) {
+      for (const item of normalizedItems) {
         const fish = await tx.fish.findUnique({ where: { id: item.fishId } });
         if (!fish || !fish.onlineBookable) {
           throw new DomainError('ERR_NOT_ONLINE_BOOKABLE', `Fish item ${fish?.name || item.fishId} is not available for online booking.`, 400);
         }
 
-        // Check inventory batches for available stock
+        // Check inventory batches for available stock (FIFO selection)
         const batches = await tx.inventoryBatch.findMany({
           where: { fishId: item.fishId, availableQty: { gte: item.quantityKg }, expiryAt: { gt: new Date() } },
           orderBy: { receivedAt: 'asc' },
@@ -43,7 +60,7 @@ export class BookingModule {
           subtotal,
         });
 
-        // Reserve stock atomically
+        // Reserve stock atomically on the selected FIFO batch
         await tx.inventoryBatch.update({
           where: { id: selectedBatch.id },
           data: {
@@ -52,6 +69,7 @@ export class BookingModule {
           },
         });
 
+        // Record reservation ledger linking exact batchId & referenceId: bookingCode
         await tx.inventoryLedger.create({
           data: {
             fishId: fish.id,
@@ -171,7 +189,6 @@ export class BookingModule {
     });
   }
 
-
   static async markBookingComplete(bookingId: string, workerId: string) {
     return await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const booking = await tx.booking.findUnique({
@@ -195,7 +212,7 @@ export class BookingModule {
         throw new DomainError('ERR_BOOKING_NOT_CONFIRMED', 'Cannot complete booking. Booking status must be CONFIRMED.', 400);
       }
 
-      // Decrement physical stock for items
+      // Decrement physical stock for items using exact reservation batch (strictly required)
       for (const item of booking.bookingItems) {
         const reservationLedger = await tx.inventoryLedger.findFirst({
           where: {
@@ -205,40 +222,54 @@ export class BookingModule {
           },
         });
 
-        let batch = null;
-        if (reservationLedger && reservationLedger.batchId) {
-          batch = await tx.inventoryBatch.findUnique({
-            where: { id: reservationLedger.batchId },
-          });
+        if (!reservationLedger || !reservationLedger.batchId) {
+          throw new DomainError(
+            'ERR_BOOKING_RESERVATION_NOT_FOUND',
+            `Reservation ledger record not found for booking item ${item.fishId}.`,
+            409
+          );
         }
+
+        const batch = await tx.inventoryBatch.findUnique({
+          where: { id: reservationLedger.batchId },
+        });
 
         if (!batch) {
-          batch = await tx.inventoryBatch.findFirst({
-            where: { fishId: item.fishId, reservedQty: { gte: item.quantityKg } },
-            orderBy: { receivedAt: 'asc' },
-          });
+          throw new DomainError(
+            'ERR_INVENTORY_RESERVATION_INVALID',
+            `Reserved inventory batch no longer exists for booking item ${item.fishId}.`,
+            409
+          );
         }
 
-        if (batch) {
-          await tx.inventoryBatch.update({
-            where: { id: batch.id },
-            data: {
-              physicalQty: { decrement: item.quantityKg },
-              reservedQty: { decrement: item.quantityKg },
-            },
-          });
-
-          await tx.inventoryLedger.create({
-            data: {
-              fishId: item.fishId,
-              batchId: batch.id,
-              changeType: InventoryChangeType.SALE,
-              quantityChange: -item.quantityKg,
-              resultingQty: batch.physicalQty - item.quantityKg,
-              referenceId: booking.bookingCode,
-            },
-          });
+        if (batch.reservedQty < item.quantityKg) {
+          throw new DomainError(
+            'ERR_INVENTORY_RESERVATION_INVALID',
+            `Insufficient reserved quantity in batch for item ${item.fishId}. Reserved: ${batch.reservedQty}kg, Required: ${item.quantityKg}kg.`,
+            409
+          );
         }
+
+        await tx.inventoryBatch.update({
+          where: { id: batch.id },
+          data: {
+            physicalQty: { decrement: item.quantityKg },
+            reservedQty: { decrement: item.quantityKg },
+          },
+        });
+
+        const resultingPhysicalQty = batch.physicalQty - item.quantityKg;
+
+        await tx.inventoryLedger.create({
+          data: {
+            fishId: item.fishId,
+            batchId: batch.id,
+            changeType: InventoryChangeType.SALE,
+            quantityChange: -item.quantityKg,
+            resultingQty: resultingPhysicalQty,
+            referenceId: booking.bookingCode,
+          },
+        });
       }
 
       const updatedBooking = await tx.booking.update({
@@ -271,7 +302,7 @@ export class BookingModule {
 
         if (updated.count === 0) return;
 
-        // Release reserved inventory
+        // Release reserved inventory using exact reservation batch
         for (const item of booking.bookingItems) {
           const reservationLedger = await tx.inventoryLedger.findFirst({
             where: {
@@ -281,40 +312,46 @@ export class BookingModule {
             },
           });
 
-          let batch = null;
-          if (reservationLedger && reservationLedger.batchId) {
-            batch = await tx.inventoryBatch.findUnique({
-              where: { id: reservationLedger.batchId },
-            });
+          if (!reservationLedger || !reservationLedger.batchId) {
+            throw new DomainError(
+              'ERR_BOOKING_RESERVATION_NOT_FOUND',
+              `Reservation ledger record missing for expired booking item ${item.fishId}.`,
+              409
+            );
           }
 
-          if (!batch) {
-            batch = await tx.inventoryBatch.findFirst({
-              where: { fishId: item.fishId, reservedQty: { gte: item.quantityKg } },
-              orderBy: { receivedAt: 'asc' },
-            });
+          const batch = await tx.inventoryBatch.findUnique({
+            where: { id: reservationLedger.batchId },
+          });
+
+          if (!batch || batch.reservedQty < item.quantityKg) {
+            throw new DomainError(
+              'ERR_INVENTORY_RESERVATION_INVALID',
+              `Reserved inventory batch missing or insufficient for expired booking item ${item.fishId}.`,
+              409
+            );
           }
 
-          if (batch) {
-            await tx.inventoryBatch.update({
-              where: { id: batch.id },
-              data: {
-                reservedQty: { decrement: item.quantityKg },
-                availableQty: { increment: item.quantityKg },
-              },
-            });
+          await tx.inventoryBatch.update({
+            where: { id: batch.id },
+            data: {
+              reservedQty: { decrement: item.quantityKg },
+              availableQty: { increment: item.quantityKg },
+            },
+          });
 
-            await tx.inventoryLedger.create({
-              data: {
-                fishId: item.fishId,
-                batchId: batch.id,
-                changeType: InventoryChangeType.BOOKING_RELEASE,
-                quantityChange: item.quantityKg,
-                resultingQty: batch.availableQty + item.quantityKg,
-                referenceId: `EXPIRY_${booking.bookingCode}`,
-              },
-            });
-          }
+          const resultingAvailableQty = batch.availableQty + item.quantityKg;
+
+          await tx.inventoryLedger.create({
+            data: {
+              fishId: item.fishId,
+              batchId: batch.id,
+              changeType: InventoryChangeType.BOOKING_RELEASE,
+              quantityChange: item.quantityKg,
+              resultingQty: resultingAvailableQty,
+              referenceId: `EXPIRY_${booking.bookingCode}`,
+            },
+          });
         }
 
         // Restore subscription credit if used

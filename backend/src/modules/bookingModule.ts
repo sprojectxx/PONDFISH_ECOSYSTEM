@@ -11,6 +11,10 @@ export class BookingModule {
     return await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       let totalAmount = 0.0;
       const bookingItemsToCreate: Array<{ fishId: string; quantityKg: number; unitPrice: number; subtotal: number }> = [];
+      const bookingCode = 'BK-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+      const qrCodeData = `PONDFISH_BOOKING:${bookingCode}`;
+      // Expiry duration strictly set to 48 elapsed hours from creation
+      const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
 
       for (const item of data.items) {
         const fish = await tx.fish.findUnique({ where: { id: item.fishId } });
@@ -55,7 +59,7 @@ export class BookingModule {
             changeType: InventoryChangeType.BOOKING_RESERVATION,
             quantityChange: -item.quantityKg,
             resultingQty: selectedBatch.availableQty - item.quantityKg,
-            referenceId: 'PENDING_BOOKING',
+            referenceId: bookingCode,
           },
         });
       }
@@ -87,11 +91,6 @@ export class BookingModule {
           });
         }
       }
-
-      const bookingCode = 'BK-' + Math.random().toString(36).substring(2, 8).toUpperCase();
-      const qrCodeData = `PONDFISH_BOOKING:${bookingCode}`;
-      // Expiry duration strictly set to 48 elapsed hours from creation
-      const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
 
       const booking = await tx.booking.create({
         data: {
@@ -192,11 +191,33 @@ export class BookingModule {
         throw new DomainError('ERR_BOOKING_ALREADY_COMPLETED', 'Booking is already marked complete.', 400);
       }
 
+      if (booking.status !== BookingStatus.CONFIRMED) {
+        throw new DomainError('ERR_BOOKING_NOT_CONFIRMED', 'Cannot complete booking. Booking status must be CONFIRMED.', 400);
+      }
+
       // Decrement physical stock for items
       for (const item of booking.bookingItems) {
-        const batch = await tx.inventoryBatch.findFirst({
-          where: { fishId: item.fishId, reservedQty: { gte: item.quantityKg } },
+        const reservationLedger = await tx.inventoryLedger.findFirst({
+          where: {
+            referenceId: booking.bookingCode,
+            fishId: item.fishId,
+            changeType: InventoryChangeType.BOOKING_RESERVATION,
+          },
         });
+
+        let batch = null;
+        if (reservationLedger && reservationLedger.batchId) {
+          batch = await tx.inventoryBatch.findUnique({
+            where: { id: reservationLedger.batchId },
+          });
+        }
+
+        if (!batch) {
+          batch = await tx.inventoryBatch.findFirst({
+            where: { fishId: item.fishId, reservedQty: { gte: item.quantityKg } },
+            orderBy: { receivedAt: 'asc' },
+          });
+        }
 
         if (batch) {
           await tx.inventoryBatch.update({
@@ -252,9 +273,27 @@ export class BookingModule {
 
         // Release reserved inventory
         for (const item of booking.bookingItems) {
-          const batch = await tx.inventoryBatch.findFirst({
-            where: { fishId: item.fishId, reservedQty: { gte: item.quantityKg } },
+          const reservationLedger = await tx.inventoryLedger.findFirst({
+            where: {
+              referenceId: booking.bookingCode,
+              fishId: item.fishId,
+              changeType: InventoryChangeType.BOOKING_RESERVATION,
+            },
           });
+
+          let batch = null;
+          if (reservationLedger && reservationLedger.batchId) {
+            batch = await tx.inventoryBatch.findUnique({
+              where: { id: reservationLedger.batchId },
+            });
+          }
+
+          if (!batch) {
+            batch = await tx.inventoryBatch.findFirst({
+              where: { fishId: item.fishId, reservedQty: { gte: item.quantityKg } },
+              orderBy: { receivedAt: 'asc' },
+            });
+          }
 
           if (batch) {
             await tx.inventoryBatch.update({

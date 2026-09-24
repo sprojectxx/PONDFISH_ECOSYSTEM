@@ -1,10 +1,17 @@
 import { AdminAuthStorageService } from '../services/authStorage';
 import { getAdminApiBaseUrl, ADMIN_API_CONFIG } from '../config/apiConfig';
+import {
+  adminApiFetch,
+  buildBookingSearchQueryUrl,
+  receiveInventoryBatch,
+  createWorkerAccount,
+} from '../services/adminApiService';
 
 describe('Admin Portal Hardening & Verification Unit Tests', () => {
   beforeEach(() => {
     localStorage.clear();
     jest.clearAllMocks();
+    (global as any).fetch = jest.fn();
   });
 
   describe('TASK 1 — API Configuration (F & M)', () => {
@@ -48,7 +55,7 @@ describe('Admin Portal Hardening & Verification Unit Tests', () => {
     });
   });
 
-  describe('TASK 3 & 4 — Fish Catalogue & Inventory Payload Validation', () => {
+  describe('TASK 3 & 4 — Fish Catalogue & Inventory Payload Validation & Real Client Requests', () => {
     it('constructs valid fish creation request payload with real category ID', () => {
       const payload = {
         categoryId: 'real-category-uuid-101',
@@ -76,17 +83,85 @@ describe('Admin Portal Hardening & Verification Unit Tests', () => {
       expect(stockBatchPayload.receivedQty).toBeGreaterThan(0);
       expect(stockBatchPayload.expiryHours).toBe(48);
     });
+
+    it('executes real inventory batch receiving client request to backend endpoint', async () => {
+      AdminAuthStorageService.saveToken('admin-jwt-mock-999');
+
+      const mockResponse = {
+        success: true,
+        data: {
+          id: 'batch-received-123',
+          fishId: 'fish-uuid-555',
+          batchCode: 'BATCH-2026-MURREL-01',
+          receivedQty: 50,
+          availableQty: 50,
+        },
+      };
+
+      ((global as any).fetch as jest.Mock).mockResolvedValueOnce({
+        status: 200,
+        ok: true,
+        json: () => Promise.resolve(mockResponse),
+      });
+
+      const payload = {
+        fishId: 'fish-uuid-555',
+        batchCode: 'BATCH-2026-MURREL-01',
+        receivedQty: 50,
+        expiryHours: 48,
+      };
+
+      const result = await receiveInventoryBatch(payload);
+
+      expect(result).toEqual(mockResponse.data);
+      expect(global.fetch).toHaveBeenCalledWith(
+        'http://localhost:5000/api/v1/admin/inventory/receive',
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer admin-jwt-mock-999',
+          }),
+          body: JSON.stringify(payload),
+        })
+      );
+    });
   });
 
-  describe('TASK 5 — Booking Search & Filter Query Construction', () => {
+  describe('TASK 5 — Booking Search & Filter Query Construction & Real Client Execution', () => {
     it('constructs booking search query string with search term and status filter', () => {
       const search = 'Rajesh';
       const status = 'CONFIRMED';
-      let query = `/admin/bookings?`;
-      if (search.trim()) query += `search=${encodeURIComponent(search.trim())}&`;
-      if (status) query += `status=${encodeURIComponent(status)}`;
+      const query = buildBookingSearchQueryUrl(search, status);
 
       expect(query).toBe('/admin/bookings?search=Rajesh&status=CONFIRMED');
+    });
+
+    it('executes real booking search query API call with active Admin session token', async () => {
+      AdminAuthStorageService.saveToken('admin-jwt-token-xyz');
+
+      const mockBookingsData = [
+        { id: 'bk-1', bookingCode: 'BK-RAJESH-1', status: 'CONFIRMED' },
+      ];
+
+      ((global as any).fetch as jest.Mock).mockResolvedValueOnce({
+        status: 200,
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockBookingsData }),
+      });
+
+      const queryUrl = buildBookingSearchQueryUrl('Rajesh', 'CONFIRMED');
+      const result = await adminApiFetch(queryUrl);
+
+      expect(result).toEqual(mockBookingsData);
+      expect(global.fetch).toHaveBeenCalledWith(
+        'http://localhost:5000/api/v1/admin/bookings?search=Rajesh&status=CONFIRMED',
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: 'Bearer admin-jwt-token-xyz',
+          }),
+        })
+      );
     });
   });
 
@@ -120,7 +195,7 @@ describe('Admin Portal Hardening & Verification Unit Tests', () => {
     });
   });
 
-  describe('TASK 8 — Worker Account Creation Request Construction', () => {
+  describe('TASK 8 — Worker Account Creation Request Construction & Real Client Execution', () => {
     it('constructs valid worker account creation payload', () => {
       const workerPayload = {
         name: 'Suresh Worker',
@@ -131,6 +206,44 @@ describe('Admin Portal Hardening & Verification Unit Tests', () => {
       expect(workerPayload.name).toBe('Suresh Worker');
       expect(workerPayload.mobileNumber).toBe('9876543210');
       expect(workerPayload.password).toBe('securePassword123');
+    });
+
+    it('executes real worker account creation API call with correct endpoint and payload', async () => {
+      AdminAuthStorageService.saveToken('admin-jwt-token-worker-creator');
+
+      const mockWorkerCreated = {
+        id: 'worker-id-99',
+        name: 'Suresh Worker',
+        email: 'suresh@pondfish.com',
+        active: true,
+      };
+
+      ((global as any).fetch as jest.Mock).mockResolvedValueOnce({
+        status: 201,
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockWorkerCreated }),
+      });
+
+      const workerPayload = {
+        name: 'Suresh Worker',
+        email: 'suresh@pondfish.com',
+        password: 'securePassword123',
+      };
+
+      const result = await createWorkerAccount(workerPayload);
+
+      expect(result).toEqual(mockWorkerCreated);
+      expect(global.fetch).toHaveBeenCalledWith(
+        'http://localhost:5000/api/v1/admin/workers',
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer admin-jwt-token-worker-creator',
+          }),
+          body: JSON.stringify(workerPayload),
+        })
+      );
     });
   });
 });

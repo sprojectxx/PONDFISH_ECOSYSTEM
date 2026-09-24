@@ -223,7 +223,7 @@ describe('Worker Portal Operations & Workflow Unit Tests', () => {
       await BookingModule.markBookingComplete('bk-exact-batch-test', 'worker-1');
 
       expect(mockBatchUpdateMany).toHaveBeenCalledWith({
-        where: { id: 'batch-old-fifo-1', reservedQty: { gte: 4.0 } },
+        where: { id: 'batch-old-fifo-1', reservedQty: { gte: 4.0 }, physicalQty: { gte: 4.0 } },
         data: { physicalQty: { decrement: 4.0 }, reservedQty: { decrement: 4.0 } },
       });
     });

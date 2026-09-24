@@ -278,11 +278,12 @@ export class BookingModule {
           );
         }
 
-        // Atomic conditional stock update (CAS at DB level)
+        // Atomic conditional stock update (CAS at DB level enforcing physicalQty & reservedQty invariants)
         const batchUpdate = await tx.inventoryBatch.updateMany({
           where: {
             id: batch.id,
             reservedQty: { gte: item.quantityKg },
+            physicalQty: { gte: item.quantityKg },
           },
           data: {
             physicalQty: { decrement: item.quantityKg },

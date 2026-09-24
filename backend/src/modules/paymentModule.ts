@@ -67,10 +67,20 @@ export class PaymentModule {
     }
 
     if (data.bookingId) {
-      await prisma.booking.update({
-        where: { id: data.bookingId },
+      const updated = await prisma.booking.updateMany({
+        where: { id: data.bookingId, status: 'PENDING' },
         data: { status: 'CONFIRMED' },
       });
+
+      if (updated.count === 0) {
+        const booking = await prisma.booking.findUnique({ where: { id: data.bookingId } });
+        if (booking?.status === 'EXPIRED') {
+          throw new DomainError('ERR_BOOKING_EXPIRED', 'Cannot confirm payment. Booking has expired (48h window passed).', 400);
+        }
+        if (booking?.status === 'COMPLETED') {
+          throw new DomainError('ERR_BOOKING_ALREADY_COMPLETED', 'Booking is already marked complete.', 400);
+        }
+      }
     }
 
     return payment;

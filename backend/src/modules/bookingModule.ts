@@ -39,7 +39,7 @@ export class BookingModule {
           throw new DomainError('ERR_NOT_ONLINE_BOOKABLE', `Fish item ${fish?.name || item.fishId} is not available for online booking.`, 400);
         }
 
-        // Check inventory batches for available stock (FIFO selection)
+        // Check inventory batches for available stock (FIFO selection order)
         const batches = await tx.inventoryBatch.findMany({
           where: { fishId: item.fishId, availableQty: { gte: item.quantityKg }, expiryAt: { gt: new Date() } },
           orderBy: { receivedAt: 'asc' },
@@ -49,7 +49,30 @@ export class BookingModule {
           throw new DomainError('ERR_INVENTORY_INSUFFICIENT', `Insufficient stock for ${fish.name}. Requested: ${item.quantityKg}kg.`, 409);
         }
 
-        const selectedBatch = batches[0];
+        // Atomic conditional reservation update on FIFO batch (CAS at DB level)
+        let reservedBatch = null;
+        for (const candidateBatch of batches) {
+          const updateResult = await tx.inventoryBatch.updateMany({
+            where: {
+              id: candidateBatch.id,
+              availableQty: { gte: item.quantityKg },
+            },
+            data: {
+              reservedQty: { increment: item.quantityKg },
+              availableQty: { decrement: item.quantityKg },
+            },
+          });
+
+          if (updateResult.count > 0) {
+            reservedBatch = candidateBatch;
+            break;
+          }
+        }
+
+        if (!reservedBatch) {
+          throw new DomainError('ERR_INVENTORY_INSUFFICIENT', `Insufficient available stock for ${fish.name}. Requested: ${item.quantityKg}kg.`, 409);
+        }
+
         const subtotal = fish.unitPrice * item.quantityKg;
         totalAmount += subtotal;
 
@@ -60,23 +83,14 @@ export class BookingModule {
           subtotal,
         });
 
-        // Reserve stock atomically on the selected FIFO batch
-        await tx.inventoryBatch.update({
-          where: { id: selectedBatch.id },
-          data: {
-            reservedQty: { increment: item.quantityKg },
-            availableQty: { decrement: item.quantityKg },
-          },
-        });
-
         // Record reservation ledger linking exact batchId & referenceId: bookingCode
         await tx.inventoryLedger.create({
           data: {
             fishId: fish.id,
-            batchId: selectedBatch.id,
+            batchId: reservedBatch.id,
             changeType: InventoryChangeType.BOOKING_RESERVATION,
             quantityChange: -item.quantityKg,
-            resultingQty: selectedBatch.availableQty - item.quantityKg,
+            resultingQty: reservedBatch.availableQty - item.quantityKg,
             referenceId: bookingCode,
           },
         });
@@ -212,6 +226,28 @@ export class BookingModule {
         throw new DomainError('ERR_BOOKING_NOT_CONFIRMED', 'Cannot complete booking. Booking status must be CONFIRMED.', 400);
       }
 
+      // Atomic compare-and-swap status transition (prevents double worker completion race conditions)
+      const statusUpdate = await tx.booking.updateMany({
+        where: {
+          id: booking.id,
+          status: BookingStatus.CONFIRMED,
+        },
+        data: {
+          status: BookingStatus.COMPLETED,
+        },
+      });
+
+      if (statusUpdate.count === 0) {
+        const reCheck = await tx.booking.findUnique({ where: { id: booking.id } });
+        if (reCheck?.status === BookingStatus.COMPLETED) {
+          throw new DomainError('ERR_BOOKING_ALREADY_COMPLETED', 'Booking is already marked complete.', 400);
+        }
+        if (reCheck?.status === BookingStatus.EXPIRED) {
+          throw new DomainError('ERR_BOOKING_EXPIRED', 'Cannot complete booking. Booking has expired (48h window passed).', 400);
+        }
+        throw new DomainError('ERR_BOOKING_NOT_CONFIRMED', 'Cannot complete booking. Booking status must be CONFIRMED.', 400);
+      }
+
       // Decrement physical stock for items using exact reservation batch (strictly required)
       for (const item of booking.bookingItems) {
         const reservationLedger = await tx.inventoryLedger.findFirst({
@@ -242,21 +278,25 @@ export class BookingModule {
           );
         }
 
-        if (batch.reservedQty < item.quantityKg) {
+        // Atomic conditional stock update (CAS at DB level)
+        const batchUpdate = await tx.inventoryBatch.updateMany({
+          where: {
+            id: batch.id,
+            reservedQty: { gte: item.quantityKg },
+          },
+          data: {
+            physicalQty: { decrement: item.quantityKg },
+            reservedQty: { decrement: item.quantityKg },
+          },
+        });
+
+        if (batchUpdate.count === 0) {
           throw new DomainError(
             'ERR_INVENTORY_RESERVATION_INVALID',
             `Insufficient reserved quantity in batch for item ${item.fishId}. Reserved: ${batch.reservedQty}kg, Required: ${item.quantityKg}kg.`,
             409
           );
         }
-
-        await tx.inventoryBatch.update({
-          where: { id: batch.id },
-          data: {
-            physicalQty: { decrement: item.quantityKg },
-            reservedQty: { decrement: item.quantityKg },
-          },
-        });
 
         const resultingPhysicalQty = batch.physicalQty - item.quantityKg;
 
@@ -272,35 +312,41 @@ export class BookingModule {
         });
       }
 
-      const updatedBooking = await tx.booking.update({
+      const updatedBooking = await tx.booking.findUnique({
         where: { id: booking.id },
-        data: { status: BookingStatus.COMPLETED },
+        include: { bookingItems: true },
       });
 
-      return updatedBooking;
+      return updatedBooking || { ...booking, status: BookingStatus.COMPLETED };
     });
   }
 
   // Idempotent 48-Hour Booking Expiry Job Worker
   static async processExpiredBookings() {
-    const expiredPendingBookings = await prisma.booking.findMany({
+    const expiredBookings = await prisma.booking.findMany({
       where: {
-        status: BookingStatus.PENDING,
+        status: { in: [BookingStatus.PENDING, BookingStatus.CONFIRMED] },
         expiresAt: { lt: new Date() },
       },
       include: { bookingItems: true },
     });
 
     let expiredCount = 0;
-    for (const booking of expiredPendingBookings) {
+    for (const booking of expiredBookings) {
       await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-        // Atomic status check prevents double-processing
-        const updated = await tx.booking.updateMany({
-          where: { id: booking.id, status: BookingStatus.PENDING },
-          data: { status: BookingStatus.EXPIRED },
+        // Atomic status claim (CAS at DB level)
+        const statusUpdate = await tx.booking.updateMany({
+          where: {
+            id: booking.id,
+            status: booking.status,
+            expiresAt: { lt: new Date() },
+          },
+          data: {
+            status: BookingStatus.EXPIRED,
+          },
         });
 
-        if (updated.count === 0) return;
+        if (statusUpdate.count === 0) return; // Worker completion or another expiry worker won the race
 
         // Release reserved inventory using exact reservation batch
         for (const item of booking.bookingItems) {
@@ -324,21 +370,32 @@ export class BookingModule {
             where: { id: reservationLedger.batchId },
           });
 
-          if (!batch || batch.reservedQty < item.quantityKg) {
+          if (!batch) {
             throw new DomainError(
               'ERR_INVENTORY_RESERVATION_INVALID',
-              `Reserved inventory batch missing or insufficient for expired booking item ${item.fishId}.`,
+              `Reserved inventory batch missing for expired booking item ${item.fishId}.`,
               409
             );
           }
 
-          await tx.inventoryBatch.update({
-            where: { id: batch.id },
+          const batchUpdate = await tx.inventoryBatch.updateMany({
+            where: {
+              id: batch.id,
+              reservedQty: { gte: item.quantityKg },
+            },
             data: {
               reservedQty: { decrement: item.quantityKg },
               availableQty: { increment: item.quantityKg },
             },
           });
+
+          if (batchUpdate.count === 0) {
+            throw new DomainError(
+              'ERR_INVENTORY_RESERVATION_INVALID',
+              `Reserved inventory batch insufficient for expired booking item ${item.fishId}.`,
+              409
+            );
+          }
 
           const resultingAvailableQty = batch.availableQty + item.quantityKg;
 

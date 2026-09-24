@@ -26,6 +26,7 @@ jest.mock('../prismaClient', () => {
         findFirst: jest.fn(),
         findUnique: jest.fn(),
         update: jest.fn(),
+        updateMany: jest.fn(),
       },
       inventoryLedger: {
         findFirst: jest.fn(),
@@ -117,7 +118,7 @@ describe('Worker Portal Operations & Workflow Unit Tests', () => {
     });
   });
 
-  describe('3. Booking Reservation Integrity & Inventory Atomicity Unit Tests', () => {
+  describe('3. Booking Reservation Integrity & Inventory Concurrency Unit Tests', () => {
     it('1. Booking with two different fish: each reservation points to its own batch, completion deducts both and creates 2 SALE ledgers', async () => {
       const mockBooking = {
         id: 'bk-multi-fish-1',
@@ -132,19 +133,14 @@ describe('Worker Portal Operations & Workflow Unit Tests', () => {
       const mockBatchRohu = { id: 'batch-rohu-1', fishId: 'fish-rohu', physicalQty: 10.0, reservedQty: 2.0 };
       const mockBatchCatla = { id: 'batch-catla-1', fishId: 'fish-catla', physicalQty: 15.0, reservedQty: 3.0 };
 
-      const mockBatchUpdate = jest.fn().mockImplementation((args: any) => {
-        if (args.where.id === 'batch-rohu-1') return Promise.resolve({ ...mockBatchRohu, physicalQty: 8.0, reservedQty: 0.0 });
-        if (args.where.id === 'batch-catla-1') return Promise.resolve({ ...mockBatchCatla, physicalQty: 12.0, reservedQty: 0.0 });
-        return Promise.resolve(null);
-      });
-
+      const mockBatchUpdateMany = jest.fn().mockResolvedValue({ count: 1 });
       const mockLedgerCreate = jest.fn().mockResolvedValue({ id: 'ledger-sale-ok' });
 
       (prisma.$transaction as jest.Mock).mockImplementationOnce(async (cb) => {
         const tx = {
           booking: {
-            findUnique: jest.fn().mockResolvedValue(mockBooking),
-            update: jest.fn().mockResolvedValue({ ...mockBooking, status: BookingStatus.COMPLETED }),
+            findUnique: jest.fn().mockResolvedValueOnce(mockBooking).mockResolvedValueOnce({ ...mockBooking, status: BookingStatus.COMPLETED }),
+            updateMany: jest.fn().mockResolvedValue({ count: 1 }),
           },
           inventoryLedger: {
             findFirst: jest.fn().mockImplementation((args: any) => {
@@ -160,7 +156,7 @@ describe('Worker Portal Operations & Workflow Unit Tests', () => {
               if (args.where.id === 'batch-catla-1') return Promise.resolve(mockBatchCatla);
               return Promise.resolve(null);
             }),
-            update: mockBatchUpdate,
+            updateMany: mockBatchUpdateMany,
           },
         };
         return cb(tx);
@@ -169,7 +165,7 @@ describe('Worker Portal Operations & Workflow Unit Tests', () => {
       const result = await BookingModule.markBookingComplete('bk-multi-fish-1', 'worker-1');
 
       expect(result.status).toBe(BookingStatus.COMPLETED);
-      expect(mockBatchUpdate).toHaveBeenCalledTimes(2);
+      expect(mockBatchUpdateMany).toHaveBeenCalledTimes(2);
       expect(mockLedgerCreate).toHaveBeenCalledTimes(2);
       expect(mockLedgerCreate).toHaveBeenNthCalledWith(1, {
         data: {
@@ -203,14 +199,14 @@ describe('Worker Portal Operations & Workflow Unit Tests', () => {
 
       const mockReservedOldBatch = { id: 'batch-old-fifo-1', fishId: 'fish-rohu', physicalQty: 20.0, reservedQty: 4.0 };
 
-      const mockBatchUpdate = jest.fn().mockResolvedValue({ ...mockReservedOldBatch, physicalQty: 16.0, reservedQty: 0.0 });
+      const mockBatchUpdateMany = jest.fn().mockResolvedValue({ count: 1 });
       const mockLedgerCreate = jest.fn().mockResolvedValue({ id: 'ledger-sale-exact' });
 
       (prisma.$transaction as jest.Mock).mockImplementationOnce(async (cb) => {
         const tx = {
           booking: {
-            findUnique: jest.fn().mockResolvedValue(mockBooking),
-            update: jest.fn().mockResolvedValue({ ...mockBooking, status: BookingStatus.COMPLETED }),
+            findUnique: jest.fn().mockResolvedValueOnce(mockBooking).mockResolvedValueOnce({ ...mockBooking, status: BookingStatus.COMPLETED }),
+            updateMany: jest.fn().mockResolvedValue({ count: 1 }),
           },
           inventoryLedger: {
             findFirst: jest.fn().mockResolvedValue({ batchId: 'batch-old-fifo-1' }),
@@ -218,7 +214,7 @@ describe('Worker Portal Operations & Workflow Unit Tests', () => {
           },
           inventoryBatch: {
             findUnique: jest.fn().mockResolvedValue(mockReservedOldBatch),
-            update: mockBatchUpdate,
+            updateMany: mockBatchUpdateMany,
           },
         };
         return cb(tx);
@@ -226,8 +222,8 @@ describe('Worker Portal Operations & Workflow Unit Tests', () => {
 
       await BookingModule.markBookingComplete('bk-exact-batch-test', 'worker-1');
 
-      expect(mockBatchUpdate).toHaveBeenCalledWith({
-        where: { id: 'batch-old-fifo-1' },
+      expect(mockBatchUpdateMany).toHaveBeenCalledWith({
+        where: { id: 'batch-old-fifo-1', reservedQty: { gte: 4.0 } },
         data: { physicalQty: { decrement: 4.0 }, reservedQty: { decrement: 4.0 } },
       });
     });
@@ -240,21 +236,21 @@ describe('Worker Portal Operations & Workflow Unit Tests', () => {
         bookingItems: [{ id: 'item-1', fishId: 'fish-rohu', quantityKg: 2.0 }],
       };
 
-      const mockBatchUpdate = jest.fn();
+      const mockBatchUpdateMany = jest.fn();
       const mockLedgerCreate = jest.fn();
 
       (prisma.$transaction as jest.Mock).mockImplementationOnce(async (cb) => {
         const tx = {
           booking: {
             findUnique: jest.fn().mockResolvedValue(mockBooking),
-            update: jest.fn(),
+            updateMany: jest.fn().mockResolvedValue({ count: 1 }),
           },
           inventoryLedger: {
             findFirst: jest.fn().mockResolvedValue(null), // Missing reservation ledger
             create: mockLedgerCreate,
           },
           inventoryBatch: {
-            update: mockBatchUpdate,
+            updateMany: mockBatchUpdateMany,
           },
         };
         return cb(tx);
@@ -269,7 +265,7 @@ describe('Worker Portal Operations & Workflow Unit Tests', () => {
         expect(err.statusCode).toBe(409);
       }
 
-      expect(mockBatchUpdate).not.toHaveBeenCalled();
+      expect(mockBatchUpdateMany).not.toHaveBeenCalled();
       expect(mockLedgerCreate).not.toHaveBeenCalled();
     });
 
@@ -281,14 +277,14 @@ describe('Worker Portal Operations & Workflow Unit Tests', () => {
         bookingItems: [{ id: 'item-1', fishId: 'fish-rohu', quantityKg: 2.0 }],
       };
 
-      const mockBatchUpdate = jest.fn();
+      const mockBatchUpdateMany = jest.fn();
       const mockLedgerCreate = jest.fn();
 
       (prisma.$transaction as jest.Mock).mockImplementationOnce(async (cb) => {
         const tx = {
           booking: {
             findUnique: jest.fn().mockResolvedValue(mockBooking),
-            update: jest.fn(),
+            updateMany: jest.fn().mockResolvedValue({ count: 1 }),
           },
           inventoryLedger: {
             findFirst: jest.fn().mockResolvedValue({ batchId: 'batch-deleted-99' }),
@@ -296,7 +292,7 @@ describe('Worker Portal Operations & Workflow Unit Tests', () => {
           },
           inventoryBatch: {
             findUnique: jest.fn().mockResolvedValue(null), // Batch deleted/missing
-            update: mockBatchUpdate,
+            updateMany: mockBatchUpdateMany,
           },
         };
         return cb(tx);
@@ -311,11 +307,11 @@ describe('Worker Portal Operations & Workflow Unit Tests', () => {
         expect(err.statusCode).toBe(409);
       }
 
-      expect(mockBatchUpdate).not.toHaveBeenCalled();
+      expect(mockBatchUpdateMany).not.toHaveBeenCalled();
       expect(mockLedgerCreate).not.toHaveBeenCalled();
     });
 
-    it('5. Insufficient reservedQty: completion fails with ERR_INVENTORY_RESERVATION_INVALID (409) and booking remains CONFIRMED', async () => {
+    it('5. Insufficient reservedQty (CAS count = 0): completion fails with ERR_INVENTORY_RESERVATION_INVALID (409)', async () => {
       const mockBooking = {
         id: 'bk-insufficient-reserved',
         bookingCode: 'BK-INSUFFICIENT-RES',
@@ -330,14 +326,13 @@ describe('Worker Portal Operations & Workflow Unit Tests', () => {
         reservedQty: 2.0, // Only 2kg reserved, required 5kg
       };
 
-      const mockBatchUpdate = jest.fn();
       const mockLedgerCreate = jest.fn();
 
       (prisma.$transaction as jest.Mock).mockImplementationOnce(async (cb) => {
         const tx = {
           booking: {
             findUnique: jest.fn().mockResolvedValue(mockBooking),
-            update: jest.fn(),
+            updateMany: jest.fn().mockResolvedValue({ count: 1 }),
           },
           inventoryLedger: {
             findFirst: jest.fn().mockResolvedValue({ batchId: 'batch-insufficient-1' }),
@@ -345,7 +340,7 @@ describe('Worker Portal Operations & Workflow Unit Tests', () => {
           },
           inventoryBatch: {
             findUnique: jest.fn().mockResolvedValue(mockBatchInsufficient),
-            update: mockBatchUpdate,
+            updateMany: jest.fn().mockResolvedValue({ count: 0 }), // CAS atomic check fails
           },
         };
         return cb(tx);
@@ -360,7 +355,6 @@ describe('Worker Portal Operations & Workflow Unit Tests', () => {
         expect(err.statusCode).toBe(409);
       }
 
-      expect(mockBatchUpdate).not.toHaveBeenCalled();
       expect(mockLedgerCreate).not.toHaveBeenCalled();
     });
 
@@ -382,7 +376,7 @@ describe('Worker Portal Operations & Workflow Unit Tests', () => {
         availableQty: 10.0,
       };
 
-      const mockBatchUpdate = jest.fn().mockResolvedValue({ ...mockBatchToRelease, reservedQty: 0.0, availableQty: 13.0 });
+      const mockBatchUpdateMany = jest.fn().mockResolvedValue({ count: 1 });
       const mockLedgerCreate = jest.fn().mockResolvedValue({ id: 'ledger-release-ok' });
 
       (prisma.$transaction as jest.Mock).mockImplementationOnce(async (cb) => {
@@ -396,7 +390,7 @@ describe('Worker Portal Operations & Workflow Unit Tests', () => {
           },
           inventoryBatch: {
             findUnique: jest.fn().mockResolvedValue(mockBatchToRelease),
-            update: mockBatchUpdate,
+            updateMany: mockBatchUpdateMany,
           },
         };
         return cb(tx);
@@ -405,8 +399,8 @@ describe('Worker Portal Operations & Workflow Unit Tests', () => {
       const result = await BookingModule.processExpiredBookings();
 
       expect(result.processedCount).toBe(1);
-      expect(mockBatchUpdate).toHaveBeenCalledWith({
-        where: { id: 'batch-release-1' },
+      expect(mockBatchUpdateMany).toHaveBeenCalledWith({
+        where: { id: 'batch-release-1', reservedQty: { gte: 3.0 } },
         data: { reservedQty: { decrement: 3.0 }, availableQty: { increment: 3.0 } },
       });
       expect(mockLedgerCreate).toHaveBeenCalledWith({
@@ -432,7 +426,7 @@ describe('Worker Portal Operations & Workflow Unit Tests', () => {
 
       (prisma.booking.findMany as jest.Mock).mockResolvedValueOnce([mockExpiredBookingNoLedger]);
 
-      const mockBatchUpdate = jest.fn();
+      const mockBatchUpdateMany = jest.fn();
 
       (prisma.$transaction as jest.Mock).mockImplementationOnce(async (cb) => {
         const tx = {
@@ -443,14 +437,14 @@ describe('Worker Portal Operations & Workflow Unit Tests', () => {
             findFirst: jest.fn().mockResolvedValue(null), // Missing reservation
           },
           inventoryBatch: {
-            update: mockBatchUpdate,
+            updateMany: mockBatchUpdateMany,
           },
         };
         return cb(tx);
       });
 
       await expect(BookingModule.processExpiredBookings()).rejects.toThrow(DomainError);
-      expect(mockBatchUpdate).not.toHaveBeenCalled();
+      expect(mockBatchUpdateMany).not.toHaveBeenCalled();
     });
 
     it('8. Same-fish duplicate booking items: createBooking normalizes/aggregates duplicate items into single reservation', async () => {
@@ -483,7 +477,7 @@ describe('Worker Portal Operations & Workflow Unit Tests', () => {
           },
           inventoryBatch: {
             findMany: jest.fn().mockResolvedValue([mockBatch]),
-            update: jest.fn().mockResolvedValue({ ...mockBatch, availableQty: 15.0, reservedQty: 5.0 }),
+            updateMany: jest.fn().mockResolvedValue({ count: 1 }),
           },
           inventoryLedger: {
             create: jest.fn().mockResolvedValue({ id: 'ledger-res-dup' }),

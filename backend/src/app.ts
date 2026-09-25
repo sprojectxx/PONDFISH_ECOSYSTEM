@@ -39,9 +39,27 @@ app.use('/api/v1/customer', customerRoutes);
 app.use('/api/v1/worker', workerRoutes);
 app.use('/api/v1/admin', adminRoutes);
 
+import { prisma } from './prismaClient';
+
 // Base Health Check
-app.get('/health', (_req, res) => {
-  return sendSuccess(res, { status: 'ONLINE', timestamp: new Date() }, 'PondFish Shared Backend System Operational');
+app.get('/health', async (_req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    return sendSuccess(
+      res,
+      { status: 'ONLINE', database: 'CONNECTED', timestamp: new Date() },
+      'PondFish Shared Backend System Operational'
+    );
+  } catch (err) {
+    return res.status(503).json({
+      success: false,
+      error: {
+        code: 'ERR_SERVICE_UNAVAILABLE',
+        message: 'Backend system degraded: Database connectivity check failed.',
+      },
+      data: { status: 'DEGRADED', database: 'DISCONNECTED', timestamp: new Date() },
+    });
+  }
 });
 
 // Global Error Handler

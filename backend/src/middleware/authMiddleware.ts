@@ -17,7 +17,7 @@ declare global {
   }
 }
 
-const JWT_SECRET = process.env.JWT_SECRET || 'fallback_dev_jwt_secret';
+import { getJwtSecret } from '../utils/jwtConfig';
 
 export function authenticateJWT(req: Request, _res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
@@ -27,10 +27,14 @@ export function authenticateJWT(req: Request, _res: Response, next: NextFunction
 
   const token = authHeader.split(' ')[1];
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as AuthenticatedUser;
+    const secret = getJwtSecret();
+    const decoded = jwt.verify(token, secret) as AuthenticatedUser;
     req.user = decoded;
     next();
   } catch (error) {
+    if (error instanceof DomainError) {
+      throw error;
+    }
     throw new DomainError('ERR_UNAUTHORIZED', 'Expired or invalid authentication session token.', 401);
   }
 }

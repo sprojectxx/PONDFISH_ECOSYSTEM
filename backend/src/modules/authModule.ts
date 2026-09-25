@@ -2,8 +2,8 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { prisma } from '../prismaClient';
 import { DomainError } from '../middleware/errorHandler';
+import { getJwtSecret } from '../utils/jwtConfig';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'fallback_dev_jwt_secret';
 // In-memory OTP storage for dev/testing (Mobile -> { otp, expiresAt })
 const otpStore = new Map<string, { otp: string; expiresAt: Date }>();
 
@@ -46,7 +46,7 @@ export class AuthModule {
 
     const token = jwt.sign(
       { id: customer.id, role: 'CUSTOMER', mobileNumber: customer.mobileNumber },
-      JWT_SECRET,
+      getJwtSecret(),
       { expiresIn: '30d' }
     );
 
@@ -66,7 +66,7 @@ export class AuthModule {
 
     const token = jwt.sign(
       { id: worker.id, role: 'WORKER', email: worker.email },
-      JWT_SECRET,
+      getJwtSecret(),
       { expiresIn: '12h' }
     );
 
@@ -86,7 +86,7 @@ export class AuthModule {
 
     const token = jwt.sign(
       { id: admin.id, role: 'ADMIN', email: admin.email },
-      JWT_SECRET,
+      getJwtSecret(),
       { expiresIn: '8h' }
     );
 

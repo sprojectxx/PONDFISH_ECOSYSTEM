@@ -468,5 +468,86 @@ describe('Integration Tests: Store Checkout & Real PostgreSQL Concurrency Suite'
     const finalBooking = await prisma.booking.findUnique({ where: { id: booking.id } });
     expect(finalBooking?.status).toBe(BookingStatus.CONFIRMED);
   });
+
+  it('6. Razorpay Order-to-Booking Binding Mismatch Security Test (Real DB)', async () => {
+    if (!isDbAvailable) {
+      console.warn('CONCURRENT INTEGRATION TEST 6: SKIPPED (REASON: PostgreSQL unavailable)');
+      return;
+    }
+
+    const category = await prisma.category.create({
+      data: { name: 'Fresh Fish', slug: 'fresh-fish-' + Date.now(), active: true },
+    });
+
+    const fish = await prisma.fish.create({
+      data: {
+        categoryId: category.id,
+        name: 'Rohu Special',
+        unitPrice: 300.0,
+        onlineBookable: true,
+        freshnessState: FreshnessState.GREEN,
+      },
+    });
+
+    const customer = await prisma.customer.create({ data: { mobileNumber: '9900000007', name: 'Cust 7' } });
+
+    // Create Booking A
+    const bookingA = await prisma.booking.create({
+      data: {
+        customerId: customer.id,
+        bookingCode: 'BK-BOUND-A',
+        qrCodeData: 'PONDFISH_BOOKING:BK-BOUND-A',
+        totalAmount: 600.0,
+        subCreditUsed: 0,
+        razorpayPaid: 600.0,
+        status: BookingStatus.PENDING,
+        expiresAt: new Date(Date.now() + 48 * 3600 * 1000),
+      },
+    });
+
+    // Create Booking B
+    const bookingB = await prisma.booking.create({
+      data: {
+        customerId: customer.id,
+        bookingCode: 'BK-BOUND-B',
+        qrCodeData: 'PONDFISH_BOOKING:BK-BOUND-B',
+        totalAmount: 600.0,
+        subCreditUsed: 0,
+        razorpayPaid: 600.0,
+        status: BookingStatus.PENDING,
+        expiresAt: new Date(Date.now() + 48 * 3600 * 1000),
+      },
+    });
+
+    // Create Razorpay Order server-side for Booking A
+    const orderA = await PaymentModule.createRazorpayOrder({
+      bookingId: bookingA.id,
+      customerId: customer.id,
+    });
+
+    const paymentId = 'pay_attack_swap_001';
+    const signature = generateTestSignature(orderA.razorpayOrderId, paymentId, TEST_RAZORPAY_SECRET);
+
+    // Attempt to verify payment using Order A's credentials against Booking B
+    await expect(
+      PaymentModule.verifyRazorpayPayment({
+        razorpayOrderId: orderA.razorpayOrderId,
+        razorpayPaymentId: paymentId,
+        razorpaySignature: signature,
+        amount: 600.0,
+        bookingId: bookingB.id, // Swapped booking ID!
+        customerId: customer.id,
+      })
+    ).rejects.toThrow('Submitted Razorpay order ID does not match the target booking.');
+
+    // Assert Booking B remains PENDING
+    const recheckedBookingB = await prisma.booking.findUnique({ where: { id: bookingB.id } });
+    expect(recheckedBookingB?.status).toBe(BookingStatus.PENDING);
+
+    // Assert 0 payment rows created for Booking B
+    const paymentsForB = await prisma.payment.findMany({ where: { bookingId: bookingB.id } });
+    expect(paymentsForB.length).toBe(0);
+  });
 });
+
 

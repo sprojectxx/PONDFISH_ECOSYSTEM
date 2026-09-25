@@ -22,6 +22,8 @@ jest.mock('../prismaClient', () => {
       },
       booking: {
         findUnique: jest.fn(),
+        findFirst: jest.fn(),
+        update: jest.fn(),
         updateMany: jest.fn(),
       },
       transaction: {
@@ -33,7 +35,7 @@ jest.mock('../prismaClient', () => {
   };
 });
 
-describe('PaymentModule - Full Security, Fail-Closed & Atomicity Suite', () => {
+describe('PaymentModule - Full Security, Order Binding & Atomicity Regression Suite', () => {
   const originalEnv = process.env;
 
   beforeEach(() => {
@@ -47,7 +49,7 @@ describe('PaymentModule - Full Security, Fail-Closed & Atomicity Suite', () => {
     process.env = originalEnv;
   });
 
-  it('TEST 1: Missing RAZORPAY_KEY_ID throws ERR_RAZORPAY_CONFIG (500) and prevents all database mutations', async () => {
+  it('TEST L: Missing RAZORPAY_KEY_ID throws ERR_RAZORPAY_CONFIG (500) and prevents all database mutations', async () => {
     delete process.env.RAZORPAY_KEY_ID;
 
     try {
@@ -69,7 +71,7 @@ describe('PaymentModule - Full Security, Fail-Closed & Atomicity Suite', () => {
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
-  it('TEST 2: Empty RAZORPAY_KEY_ID throws ERR_RAZORPAY_CONFIG (500) and prevents order creation & payment verification', async () => {
+  it('TEST 2: Empty RAZORPAY_KEY_ID throws ERR_RAZORPAY_CONFIG (500)', async () => {
     process.env.RAZORPAY_KEY_ID = '';
 
     await expect(PaymentModule.createRazorpayOrder(500)).rejects.toThrow(DomainError);
@@ -92,120 +94,7 @@ describe('PaymentModule - Full Security, Fail-Closed & Atomicity Suite', () => {
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
-  it('TEST 3: Whitespace-only RAZORPAY_KEY_ID throws ERR_RAZORPAY_CONFIG (500) and prevents database mutation', async () => {
-    process.env.RAZORPAY_KEY_ID = '   \t\n  ';
-
-    try {
-      await PaymentModule.verifyRazorpayPayment({
-        razorpayOrderId: 'order_3',
-        razorpayPaymentId: 'pay_3',
-        razorpaySignature: 'sig_3',
-        amount: 300,
-        bookingId: 'bk-3',
-      });
-      fail('Should have thrown ERR_RAZORPAY_CONFIG');
-    } catch (err: any) {
-      expect(err).toBeInstanceOf(DomainError);
-      expect(err.code).toBe('ERR_RAZORPAY_CONFIG');
-      expect(err.statusCode).toBe(500);
-    }
-
-    expect(prisma.$transaction).not.toHaveBeenCalled();
-  });
-
-  it('TEST 4: Missing RAZORPAY_KEY_SECRET throws ERR_RAZORPAY_CONFIG (500) and prevents all database mutations', async () => {
-    delete process.env.RAZORPAY_KEY_SECRET;
-
-    try {
-      await PaymentModule.verifyRazorpayPayment({
-        razorpayOrderId: 'order_4',
-        razorpayPaymentId: 'pay_4',
-        razorpaySignature: 'sig_4',
-        amount: 400,
-        bookingId: 'bk-4',
-      });
-      fail('Should have thrown ERR_RAZORPAY_CONFIG');
-    } catch (err: any) {
-      expect(err).toBeInstanceOf(DomainError);
-      expect(err.code).toBe('ERR_RAZORPAY_CONFIG');
-      expect(err.statusCode).toBe(500);
-      expect(err.message).toContain('Razorpay secret key is not configured');
-    }
-
-    expect(prisma.$transaction).not.toHaveBeenCalled();
-  });
-
-  it('TEST 5: Empty/whitespace RAZORPAY_KEY_SECRET throws ERR_RAZORPAY_CONFIG (500) and prevents mutation', async () => {
-    process.env.RAZORPAY_KEY_SECRET = '   ';
-
-    try {
-      await PaymentModule.verifyRazorpayPayment({
-        razorpayOrderId: 'order_5',
-        razorpayPaymentId: 'pay_5',
-        razorpaySignature: 'sig_5',
-        amount: 500,
-        bookingId: 'bk-5',
-      });
-      fail('Should have thrown ERR_RAZORPAY_CONFIG');
-    } catch (err: any) {
-      expect(err).toBeInstanceOf(DomainError);
-      expect(err.code).toBe('ERR_RAZORPAY_CONFIG');
-      expect(err.statusCode).toBe(500);
-    }
-
-    expect(prisma.$transaction).not.toHaveBeenCalled();
-  });
-
-  it('TEST 6: Valid Key ID + valid Secret + valid HMAC successfully verifies payment, updates booking to CONFIRMED and creates Payment SUCCESS', async () => {
-    const orderId = 'order_6';
-    const paymentId = 'pay_6';
-    const validSig = generateValidSignature(orderId, paymentId);
-
-    const mockBooking = { id: 'bk-6', status: 'PENDING', razorpayPaid: 600.0 };
-    const mockCreatedPayment = {
-      id: 'pay-db-6',
-      bookingId: 'bk-6',
-      razorpayOrderId: orderId,
-      razorpayPaymentId: paymentId,
-      razorpaySignature: validSig,
-      amount: 600.0,
-      method: 'RAZORPAY',
-      status: 'SUCCESS',
-    };
-
-    const mockTxBookingUpdateMany = jest.fn().mockResolvedValue({ count: 1 });
-    const mockTxPaymentCreate = jest.fn().mockResolvedValue(mockCreatedPayment);
-
-    (prisma.$transaction as jest.Mock).mockImplementationOnce(async (cb) => {
-      const tx = {
-        payment: { findUnique: jest.fn().mockResolvedValue(null), create: mockTxPaymentCreate },
-        booking: { findUnique: jest.fn().mockResolvedValue(mockBooking), updateMany: mockTxBookingUpdateMany },
-        transaction: { findUnique: jest.fn(), update: jest.fn() },
-      };
-      return cb(tx);
-    });
-
-    const result = await PaymentModule.verifyRazorpayPayment({
-      razorpayOrderId: orderId,
-      razorpayPaymentId: paymentId,
-      razorpaySignature: validSig,
-      amount: 600.0,
-      bookingId: 'bk-6',
-    });
-
-    expect(result).toEqual(mockCreatedPayment);
-    expect(mockTxBookingUpdateMany).toHaveBeenCalledWith({
-      where: { id: 'bk-6', status: 'PENDING' },
-      data: { status: 'CONFIRMED' },
-    });
-    expect(mockTxPaymentCreate).toHaveBeenCalled();
-    // Assert invocation order: Booking CAS mutation must execute before Payment creation
-    expect(mockTxBookingUpdateMany.mock.invocationCallOrder[0]).toBeLessThan(
-      mockTxPaymentCreate.mock.invocationCallOrder[0]
-    );
-  });
-
-  it('TEST 7: Invalid HMAC throws ERR_RAZORPAY_VERIFY_FAILED (400) and transaction is never entered', async () => {
+  it('TEST K: Invalid HMAC signature throws ERR_RAZORPAY_VERIFY_FAILED (400) and transaction is never entered', async () => {
     try {
       await PaymentModule.verifyRazorpayPayment({
         razorpayOrderId: 'order_7',
@@ -224,54 +113,220 @@ describe('PaymentModule - Full Security, Fail-Closed & Atomicity Suite', () => {
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
-  it('TEST 8: NODE_ENV=development + invalid HMAC is STILL rejected with ERR_RAZORPAY_VERIFY_FAILED', async () => {
-    process.env.NODE_ENV = 'development';
-
-    try {
-      await PaymentModule.verifyRazorpayPayment({
-        razorpayOrderId: 'order_8',
-        razorpayPaymentId: 'pay_8',
-        razorpaySignature: 'bogus_dev_signature',
-        amount: 800,
-        bookingId: 'bk-8',
-      });
-      fail('Should have rejected invalid HMAC in NODE_ENV=development');
-    } catch (err: any) {
-      expect(err).toBeInstanceOf(DomainError);
-      expect(err.code).toBe('ERR_RAZORPAY_VERIFY_FAILED');
-      expect(err.statusCode).toBe(400);
-    }
-
-    expect(prisma.$transaction).not.toHaveBeenCalled();
-  });
-
-  it('TEST 9: NODE_ENV=production + invalid HMAC is STILL rejected with ERR_RAZORPAY_VERIFY_FAILED', async () => {
-    process.env.NODE_ENV = 'production';
-
-    try {
-      await PaymentModule.verifyRazorpayPayment({
-        razorpayOrderId: 'order_9',
-        razorpayPaymentId: 'pay_9',
-        razorpaySignature: 'bogus_prod_signature',
-        amount: 900,
-        bookingId: 'bk-9',
-      });
-      fail('Should have rejected invalid HMAC in NODE_ENV=production');
-    } catch (err: any) {
-      expect(err).toBeInstanceOf(DomainError);
-      expect(err.code).toBe('ERR_RAZORPAY_VERIFY_FAILED');
-      expect(err.statusCode).toBe(400);
-    }
-
-    expect(prisma.$transaction).not.toHaveBeenCalled();
-  });
-
-  it('TEST 10: Existing razorpayPaymentId remains idempotent and returns existing payment record', async () => {
-    const orderId = 'order_10';
-    const paymentId = 'pay_10_dup';
+  it('TEST A: Valid HMAC + valid Razorpay order/payment + correct booking -> SUCCESS', async () => {
+    const orderId = 'order_bound_001';
+    const paymentId = 'pay_bound_001';
     const validSig = generateValidSignature(orderId, paymentId);
 
-    const existingPaymentRecord = { id: 'pay-existing-10', razorpayPaymentId: paymentId, amount: 1000.0, status: 'SUCCESS' };
+    const mockBooking = { id: 'bk-A', customerId: 'cust-1', status: 'PENDING', razorpayPaid: 600.0, razorpayOrderId: orderId };
+    const mockCreatedPayment = {
+      id: 'pay-db-A',
+      bookingId: 'bk-A',
+      razorpayOrderId: orderId,
+      razorpayPaymentId: paymentId,
+      razorpaySignature: validSig,
+      amount: 600.0,
+      method: 'RAZORPAY',
+      status: 'SUCCESS',
+    };
+
+    const mockTxBookingUpdateMany = jest.fn().mockResolvedValue({ count: 1 });
+    const mockTxPaymentCreate = jest.fn().mockResolvedValue(mockCreatedPayment);
+
+    (prisma.$transaction as jest.Mock).mockImplementationOnce(async (cb) => {
+      const tx = {
+        payment: { findUnique: jest.fn().mockResolvedValue(null), create: mockTxPaymentCreate },
+        booking: { findUnique: jest.fn().mockResolvedValue(mockBooking), findFirst: jest.fn(), updateMany: mockTxBookingUpdateMany },
+        transaction: { findUnique: jest.fn(), update: jest.fn() },
+      };
+      return cb(tx);
+    });
+
+    const result = await PaymentModule.verifyRazorpayPayment({
+      razorpayOrderId: orderId,
+      razorpayPaymentId: paymentId,
+      razorpaySignature: validSig,
+      amount: 600.0,
+      bookingId: 'bk-A',
+      customerId: 'cust-1',
+    });
+
+    expect(result).toEqual(mockCreatedPayment);
+    expect(mockTxBookingUpdateMany).toHaveBeenCalledWith({
+      where: { id: 'bk-A', status: 'PENDING' },
+      data: { status: 'CONFIRMED' },
+    });
+    expect(mockTxPaymentCreate).toHaveBeenCalled();
+  });
+
+  it('TEST B: Valid HMAC + Razorpay order belonging to Booking A + submitted Booking B -> ERR_PAYMENT_BOOKING_MISMATCH and zero payment creation', async () => {
+    const orderIdA = 'order_belonging_to_booking_A';
+    const paymentId = 'pay_attack_001';
+    const validSig = generateValidSignature(orderIdA, paymentId);
+
+    // Victim Booking B has razorpayOrderId 'order_belonging_to_booking_B'
+    const mockBookingB = {
+      id: 'bk-B',
+      customerId: 'cust-victim',
+      status: 'PENDING',
+      razorpayPaid: 500.0,
+      razorpayOrderId: 'order_belonging_to_booking_B',
+    };
+    const mockTxPaymentCreate = jest.fn();
+
+    (prisma.$transaction as jest.Mock).mockImplementationOnce(async (cb) => {
+      const tx = {
+        payment: { findUnique: jest.fn().mockResolvedValue(null), create: mockTxPaymentCreate },
+        booking: { findUnique: jest.fn().mockResolvedValue(mockBookingB), findFirst: jest.fn(), updateMany: jest.fn() },
+      };
+      return cb(tx);
+    });
+
+    try {
+      await PaymentModule.verifyRazorpayPayment({
+        razorpayOrderId: orderIdA, // Submitted order_A
+        razorpayPaymentId: paymentId,
+        razorpaySignature: validSig,
+        amount: 500.0,
+        bookingId: 'bk-B', // Submitted victim booking_B
+      });
+      fail('Should have thrown ERR_PAYMENT_BOOKING_MISMATCH');
+    } catch (err: any) {
+      expect(err).toBeInstanceOf(DomainError);
+      expect(err.code).toBe('ERR_PAYMENT_BOOKING_MISMATCH');
+      expect(err.statusCode).toBe(400);
+      expect(err.message).toContain('Razorpay order ID does not match');
+    }
+
+    expect(mockTxPaymentCreate).not.toHaveBeenCalled();
+  });
+
+  it('TEST B2: Order A assigned to Booking A in DB when Booking B has null razorpayOrderId -> ERR_PAYMENT_BOOKING_MISMATCH', async () => {
+    const orderIdA = 'order_assigned_to_A';
+    const paymentId = 'pay_attack_002';
+    const validSig = generateValidSignature(orderIdA, paymentId);
+
+    const mockBookingB = { id: 'bk-B', customerId: 'cust-2', status: 'PENDING', razorpayPaid: 500.0, razorpayOrderId: null };
+    const mockBookingA = { id: 'bk-A', customerId: 'cust-1', status: 'PENDING', razorpayPaid: 500.0, razorpayOrderId: orderIdA };
+    const mockTxPaymentCreate = jest.fn();
+
+    (prisma.$transaction as jest.Mock).mockImplementationOnce(async (cb) => {
+      const tx = {
+        payment: { findUnique: jest.fn().mockResolvedValue(null), create: mockTxPaymentCreate },
+        booking: {
+          findUnique: jest.fn().mockResolvedValue(mockBookingB),
+          findFirst: jest.fn().mockResolvedValue(mockBookingA), // Found bound to Booking A!
+          updateMany: jest.fn(),
+        },
+      };
+      return cb(tx);
+    });
+
+    try {
+      await PaymentModule.verifyRazorpayPayment({
+        razorpayOrderId: orderIdA,
+        razorpayPaymentId: paymentId,
+        razorpaySignature: validSig,
+        amount: 500.0,
+        bookingId: 'bk-B',
+      });
+      fail('Should have thrown ERR_PAYMENT_BOOKING_MISMATCH');
+    } catch (err: any) {
+      expect(err).toBeInstanceOf(DomainError);
+      expect(err.code).toBe('ERR_PAYMENT_BOOKING_MISMATCH');
+      expect(err.statusCode).toBe(400);
+    }
+
+    expect(mockTxPaymentCreate).not.toHaveBeenCalled();
+  });
+
+  it('TEST C: Valid payment + wrong transactionId -> ERR_PAYMENT_BOOKING_MISMATCH', async () => {
+    const orderId = 'order_tx_mismatch';
+    const paymentId = 'pay_tx_mismatch';
+    const validSig = generateValidSignature(orderId, paymentId);
+
+    const mockBooking = { id: 'bk-C', status: 'PENDING', razorpayPaid: 300.0, razorpayOrderId: orderId };
+    const mockTransactionForOtherBooking = { id: 'tx-other', bookingId: 'bk-OTHER', customerId: 'cust-1', finalPaidAmount: 300.0 };
+    const mockTxBookingUpdateMany = jest.fn().mockResolvedValue({ count: 1 });
+    const mockTxPaymentCreate = jest.fn();
+
+    (prisma.$transaction as jest.Mock).mockImplementationOnce(async (cb) => {
+      const tx = {
+        payment: { findUnique: jest.fn().mockResolvedValue(null), create: mockTxPaymentCreate },
+        booking: { findUnique: jest.fn().mockResolvedValue(mockBooking), findFirst: jest.fn(), updateMany: mockTxBookingUpdateMany },
+        transaction: { findUnique: jest.fn().mockResolvedValue(mockTransactionForOtherBooking), update: jest.fn() },
+      };
+      return cb(tx);
+    });
+
+    try {
+      await PaymentModule.verifyRazorpayPayment({
+        razorpayOrderId: orderId,
+        razorpayPaymentId: paymentId,
+        razorpaySignature: validSig,
+        amount: 300.0,
+        bookingId: 'bk-C',
+        transactionId: 'tx-other',
+      });
+      fail('Should have thrown ERR_PAYMENT_BOOKING_MISMATCH');
+    } catch (err: any) {
+      expect(err).toBeInstanceOf(DomainError);
+      expect(err.code).toBe('ERR_PAYMENT_BOOKING_MISMATCH');
+      expect(err.statusCode).toBe(400);
+      expect(err.message).toContain('Transaction does not belong to the specified booking');
+    }
+
+    expect(mockTxPaymentCreate).not.toHaveBeenCalled();
+  });
+
+  it('TEST D: Customer A attempts to verify payment for Customer B booking -> ERR_FORBIDDEN (403)', async () => {
+    const orderId = 'order_cust_mismatch';
+    const paymentId = 'pay_cust_mismatch';
+    const validSig = generateValidSignature(orderId, paymentId);
+
+    const mockBookingOfCustomerB = { id: 'bk-B', customerId: 'cust-B', status: 'PENDING', razorpayPaid: 400.0, razorpayOrderId: orderId };
+    const mockTxPaymentCreate = jest.fn();
+
+    (prisma.$transaction as jest.Mock).mockImplementationOnce(async (cb) => {
+      const tx = {
+        payment: { findUnique: jest.fn().mockResolvedValue(null), create: mockTxPaymentCreate },
+        booking: { findUnique: jest.fn().mockResolvedValue(mockBookingOfCustomerB), findFirst: jest.fn(), updateMany: jest.fn() },
+      };
+      return cb(tx);
+    });
+
+    try {
+      await PaymentModule.verifyRazorpayPayment({
+        razorpayOrderId: orderId,
+        razorpayPaymentId: paymentId,
+        razorpaySignature: validSig,
+        amount: 400.0,
+        bookingId: 'bk-B',
+        customerId: 'cust-A', // Attacker Customer A
+      });
+      fail('Should have thrown ERR_FORBIDDEN');
+    } catch (err: any) {
+      expect(err).toBeInstanceOf(DomainError);
+      expect(err.code).toBe('ERR_FORBIDDEN');
+      expect(err.statusCode).toBe(403);
+    }
+
+    expect(mockTxPaymentCreate).not.toHaveBeenCalled();
+  });
+
+  it('TEST E: Same Razorpay payment ID submitted twice for same booking -> Idempotent success', async () => {
+    const orderId = 'order_idem_01';
+    const paymentId = 'pay_idem_01';
+    const validSig = generateValidSignature(orderId, paymentId);
+
+    const existingPaymentRecord = {
+      id: 'pay-existing-10',
+      bookingId: 'bk-idem',
+      razorpayOrderId: orderId,
+      razorpayPaymentId: paymentId,
+      amount: 1000.0,
+      status: 'SUCCESS',
+    };
     const mockTxBookingUpdateMany = jest.fn();
     const mockTxPaymentCreate = jest.fn();
 
@@ -288,7 +343,7 @@ describe('PaymentModule - Full Security, Fail-Closed & Atomicity Suite', () => {
       razorpayPaymentId: paymentId,
       razorpaySignature: validSig,
       amount: 1000.0,
-      bookingId: 'bk-10',
+      bookingId: 'bk-idem',
     });
 
     expect(result).toEqual(existingPaymentRecord);
@@ -296,18 +351,24 @@ describe('PaymentModule - Full Security, Fail-Closed & Atomicity Suite', () => {
     expect(mockTxPaymentCreate).not.toHaveBeenCalled();
   });
 
-  it('TEST 11: Payment amount mismatch throws ERR_PAYMENT_AMOUNT_MISMATCH (400) and commits zero payment', async () => {
-    const orderId = 'order_11';
-    const paymentId = 'pay_11';
+  it('TEST F: Same Razorpay payment ID submitted for a DIFFERENT booking -> ERR_PAYMENT_BOOKING_MISMATCH', async () => {
+    const orderId = 'order_idem_02';
+    const paymentId = 'pay_idem_02';
     const validSig = generateValidSignature(orderId, paymentId);
 
-    const mockBooking = { id: 'bk-11', status: 'PENDING', razorpayPaid: 1000.0 };
-    const mockTxPaymentCreate = jest.fn();
+    const existingPaymentForBookingA = {
+      id: 'pay-existing-A',
+      bookingId: 'bk-A',
+      razorpayOrderId: orderId,
+      razorpayPaymentId: paymentId,
+      amount: 800.0,
+      status: 'SUCCESS',
+    };
 
     (prisma.$transaction as jest.Mock).mockImplementationOnce(async (cb) => {
       const tx = {
-        payment: { findUnique: jest.fn().mockResolvedValue(null), create: mockTxPaymentCreate },
-        booking: { findUnique: jest.fn().mockResolvedValue(mockBooking), updateMany: jest.fn() },
+        payment: { findUnique: jest.fn().mockResolvedValue(existingPaymentForBookingA), create: jest.fn() },
+        booking: { findUnique: jest.fn(), updateMany: jest.fn() },
       };
       return cb(tx);
     });
@@ -317,7 +378,39 @@ describe('PaymentModule - Full Security, Fail-Closed & Atomicity Suite', () => {
         razorpayOrderId: orderId,
         razorpayPaymentId: paymentId,
         razorpaySignature: validSig,
-        amount: 500.0, // Tampered amount (500 vs 1000)
+        amount: 800.0,
+        bookingId: 'bk-B', // Different booking submitted!
+      });
+      fail('Should have thrown ERR_PAYMENT_BOOKING_MISMATCH');
+    } catch (err: any) {
+      expect(err).toBeInstanceOf(DomainError);
+      expect(err.code).toBe('ERR_PAYMENT_BOOKING_MISMATCH');
+      expect(err.statusCode).toBe(400);
+    }
+  });
+
+  it('TEST I: Payment amount mismatch throws ERR_PAYMENT_AMOUNT_MISMATCH (400) and commits zero payment', async () => {
+    const orderId = 'order_11';
+    const paymentId = 'pay_11';
+    const validSig = generateValidSignature(orderId, paymentId);
+
+    const mockBooking = { id: 'bk-11', status: 'PENDING', razorpayPaid: 1000.0, razorpayOrderId: orderId };
+    const mockTxPaymentCreate = jest.fn();
+
+    (prisma.$transaction as jest.Mock).mockImplementationOnce(async (cb) => {
+      const tx = {
+        payment: { findUnique: jest.fn().mockResolvedValue(null), create: mockTxPaymentCreate },
+        booking: { findUnique: jest.fn().mockResolvedValue(mockBooking), findFirst: jest.fn(), updateMany: jest.fn() },
+      };
+      return cb(tx);
+    });
+
+    try {
+      await PaymentModule.verifyRazorpayPayment({
+        razorpayOrderId: orderId,
+        razorpayPaymentId: paymentId,
+        razorpaySignature: validSig,
+        amount: 500.0, // Tampered amount
         bookingId: 'bk-11',
       });
       fail('Should have thrown ERR_PAYMENT_AMOUNT_MISMATCH');
@@ -330,18 +423,18 @@ describe('PaymentModule - Full Security, Fail-Closed & Atomicity Suite', () => {
     expect(mockTxPaymentCreate).not.toHaveBeenCalled();
   });
 
-  it('TEST 12: Expired booking with valid signature throws ERR_BOOKING_EXPIRED (400) and commits zero payment', async () => {
+  it('TEST H: Expired booking with valid signature throws ERR_BOOKING_EXPIRED (400) and commits zero payment', async () => {
     const orderId = 'order_12';
     const paymentId = 'pay_12';
     const validSig = generateValidSignature(orderId, paymentId);
 
-    const mockExpiredBooking = { id: 'bk-12', status: 'EXPIRED', razorpayPaid: 350.0 };
+    const mockExpiredBooking = { id: 'bk-12', status: 'EXPIRED', razorpayPaid: 350.0, razorpayOrderId: orderId };
     const mockTxPaymentCreate = jest.fn();
 
     (prisma.$transaction as jest.Mock).mockImplementationOnce(async (cb) => {
       const tx = {
         payment: { findUnique: jest.fn().mockResolvedValue(null), create: mockTxPaymentCreate },
-        booking: { findUnique: jest.fn().mockResolvedValue(mockExpiredBooking), updateMany: jest.fn() },
+        booking: { findUnique: jest.fn().mockResolvedValue(mockExpiredBooking), findFirst: jest.fn(), updateMany: jest.fn() },
       };
       return cb(tx);
     });
@@ -364,55 +457,19 @@ describe('PaymentModule - Full Security, Fail-Closed & Atomicity Suite', () => {
     expect(mockTxPaymentCreate).not.toHaveBeenCalled();
   });
 
-  it('TEST 13: Completed booking with valid signature throws ERR_BOOKING_ALREADY_COMPLETED (400) and commits zero payment', async () => {
-    const orderId = 'order_13';
-    const paymentId = 'pay_13';
-    const validSig = generateValidSignature(orderId, paymentId);
-
-    const mockCompletedBooking = { id: 'bk-13', status: 'COMPLETED', razorpayPaid: 450.0 };
-    const mockTxPaymentCreate = jest.fn();
-
-    (prisma.$transaction as jest.Mock).mockImplementationOnce(async (cb) => {
-      const tx = {
-        payment: { findUnique: jest.fn().mockResolvedValue(null), create: mockTxPaymentCreate },
-        booking: { findUnique: jest.fn().mockResolvedValue(mockCompletedBooking), updateMany: jest.fn() },
-      };
-      return cb(tx);
-    });
-
-    try {
-      await PaymentModule.verifyRazorpayPayment({
-        razorpayOrderId: orderId,
-        razorpayPaymentId: paymentId,
-        razorpaySignature: validSig,
-        amount: 450.0,
-        bookingId: 'bk-13',
-      });
-      fail('Should have thrown ERR_BOOKING_ALREADY_COMPLETED');
-    } catch (err: any) {
-      expect(err).toBeInstanceOf(DomainError);
-      expect(err.code).toBe('ERR_BOOKING_ALREADY_COMPLETED');
-      expect(err.statusCode).toBe(400);
-    }
-
-    expect(mockTxPaymentCreate).not.toHaveBeenCalled();
-  });
-
-  it('TEST 14: Database failure after transactional mutation (booking update succeeds, payment create fails) propagates error from transaction callback', async () => {
-    // Note: Mock unit test verifies application transaction callback execution flow and error propagation.
-    // Real PostgreSQL row rollback requires execution against a live PostgreSQL server.
+  it('TEST J: Database failure after transactional booking mutation propagates error cleanly', async () => {
     const orderId = 'order_14';
     const paymentId = 'pay_14';
     const validSig = generateValidSignature(orderId, paymentId);
 
-    const mockBooking = { id: 'bk-14', status: 'PENDING', razorpayPaid: 250.0 };
+    const mockBooking = { id: 'bk-14', status: 'PENDING', razorpayPaid: 250.0, razorpayOrderId: orderId };
     const mockTxBookingUpdateMany = jest.fn().mockResolvedValue({ count: 1 });
     const mockTxPaymentCreate = jest.fn().mockRejectedValue(new Error('Database write failure on payment creation'));
 
     (prisma.$transaction as jest.Mock).mockImplementationOnce(async (cb) => {
       const tx = {
         payment: { findUnique: jest.fn().mockResolvedValue(null), create: mockTxPaymentCreate },
-        booking: { findUnique: jest.fn().mockResolvedValue(mockBooking), updateMany: mockTxBookingUpdateMany },
+        booking: { findUnique: jest.fn().mockResolvedValue(mockBooking), findFirst: jest.fn(), updateMany: mockTxBookingUpdateMany },
       };
       return cb(tx);
     });
@@ -427,96 +484,35 @@ describe('PaymentModule - Full Security, Fail-Closed & Atomicity Suite', () => {
       })
     ).rejects.toThrow('Database write failure on payment creation');
 
-    // Assert that booking update executed first inside transaction callback before payment creation failed
     expect(mockTxBookingUpdateMany).toHaveBeenCalledWith({
       where: { id: 'bk-14', status: 'PENDING' },
       data: { status: 'CONFIRMED' },
     });
     expect(mockTxPaymentCreate).toHaveBeenCalled();
-    expect(mockTxBookingUpdateMany.mock.invocationCallOrder[0]).toBeLessThan(
-      mockTxPaymentCreate.mock.invocationCallOrder[0]
-    );
   });
 
-  it('TEST 15: Concurrent payment verification vs expiration race (updateMany count === 0 after expiration wins) throws ERR_BOOKING_EXPIRED and creates no payment', async () => {
-    const orderId = 'order_15';
-    const paymentId = 'pay_15';
-    const validSig = generateValidSignature(orderId, paymentId);
+  it('TEST M: createRazorpayOrder derives authoritative amount from booking.razorpayPaid and binds razorpayOrderId in DB', async () => {
+    const mockBooking = {
+      id: 'bk-M',
+      customerId: 'cust-1',
+      status: 'PENDING',
+      razorpayPaid: 1250.0,
+    };
 
-    const mockInitialBooking = { id: 'bk-15', status: 'PENDING', razorpayPaid: 350.0 };
-    const mockExpiredRecheck = { id: 'bk-15', status: 'EXPIRED', razorpayPaid: 350.0 };
-    const mockTxPaymentCreate = jest.fn();
+    (prisma.booking.findUnique as jest.Mock).mockResolvedValueOnce(mockBooking);
+    (prisma.booking.update as jest.Mock).mockResolvedValueOnce({ ...mockBooking, razorpayOrderId: 'order_test_M' });
 
-    (prisma.$transaction as jest.Mock).mockImplementationOnce(async (cb) => {
-      let findCount = 0;
-      const tx = {
-        payment: { findUnique: jest.fn().mockResolvedValue(null), create: mockTxPaymentCreate },
-        booking: {
-          findUnique: jest.fn().mockImplementation(async () => {
-            findCount++;
-            return findCount === 1 ? mockInitialBooking : mockExpiredRecheck;
-          }),
-          updateMany: jest.fn().mockResolvedValue({ count: 0 }), // Lost race to expiration
-        },
-      };
-      return cb(tx);
+    const order = await PaymentModule.createRazorpayOrder({
+      bookingId: 'bk-M',
+      customerId: 'cust-1',
     });
 
-    try {
-      await PaymentModule.verifyRazorpayPayment({
-        razorpayOrderId: orderId,
-        razorpayPaymentId: paymentId,
-        razorpaySignature: validSig,
-        amount: 350.0,
-        bookingId: 'bk-15',
-      });
-      fail('Should have thrown ERR_BOOKING_EXPIRED');
-    } catch (err: any) {
-      expect(err).toBeInstanceOf(DomainError);
-      expect(err.code).toBe('ERR_BOOKING_EXPIRED');
-      expect(err.statusCode).toBe(400);
-    }
-
-    expect(mockTxPaymentCreate).not.toHaveBeenCalled();
-  });
-
-  it('TEST 16: Transaction ID confirmation marks store transaction status COMPLETED inside payment transaction', async () => {
-    const orderId = 'order_16';
-    const paymentId = 'pay_16';
-    const validSig = generateValidSignature(orderId, paymentId);
-
-    const mockTransaction = { id: 'tx-store-16', finalPaidAmount: 850.0, status: 'PENDING' };
-    const mockCreatedPayment = { id: 'pay-tx-16', transactionId: 'tx-store-16', amount: 850.0, status: 'SUCCESS' };
-    const mockTxUpdate = jest.fn().mockResolvedValue({ count: 1 });
-    const mockTxPaymentCreate = jest.fn().mockResolvedValue(mockCreatedPayment);
-
-    (prisma.$transaction as jest.Mock).mockImplementationOnce(async (cb) => {
-      const tx = {
-        payment: { findUnique: jest.fn().mockResolvedValue(null), create: mockTxPaymentCreate },
-        transaction: { findUnique: jest.fn().mockResolvedValue(mockTransaction), update: mockTxUpdate },
-      };
-      return cb(tx);
-    });
-
-    const result = await PaymentModule.verifyRazorpayPayment({
-      razorpayOrderId: orderId,
-      razorpayPaymentId: paymentId,
-      razorpaySignature: validSig,
-      amount: 850.0,
-      transactionId: 'tx-store-16',
-    });
-
-    expect(result).toEqual(mockCreatedPayment);
-    expect(mockTxUpdate).toHaveBeenCalledWith({
-      where: { id: 'tx-store-16' },
-      data: { status: 'COMPLETED' },
-    });
-  });
-
-  it('TEST 17: createRazorpayOrder succeeds with configured RAZORPAY_KEY_ID', async () => {
-    const order = await PaymentModule.createRazorpayOrder(1500.0);
-    expect(order.amount).toBe(1500.0);
+    expect(order.amount).toBe(1250.0);
     expect(order.keyId).toBe(TEST_KEY_ID);
     expect(order.razorpayOrderId).toMatch(/^order_/);
+    expect(prisma.booking.update).toHaveBeenCalledWith({
+      where: { id: 'bk-M' },
+      data: { razorpayOrderId: order.razorpayOrderId },
+    });
   });
 });

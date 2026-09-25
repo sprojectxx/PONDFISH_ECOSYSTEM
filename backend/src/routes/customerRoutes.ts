@@ -128,8 +128,13 @@ router.post('/bills/verify-extraction', async (req, res, next) => {
 
 router.post('/payments/create-order', async (req, res, next) => {
   try {
-    const { amount } = req.body;
-    const order = await PaymentModule.createRazorpayOrder(amount);
+    const { amount, bookingId, transactionId } = req.body;
+    const order = await PaymentModule.createRazorpayOrder({
+      amount,
+      bookingId,
+      transactionId,
+      customerId: req.user!.id,
+    });
     return sendSuccess(res, order, 'Razorpay order created');
   } catch (err) {
     next(err);
@@ -146,6 +151,7 @@ router.post('/payments/verify', async (req, res, next) => {
       amount,
       bookingId,
       transactionId,
+      customerId: req.user!.id,
     });
     return sendSuccess(res, payment, 'Razorpay payment verified successfully');
   } catch (err) {

@@ -27,7 +27,23 @@ export class PaymentServiceAdapter {
   /**
    * Step 1: Create Razorpay Payment Gateway Order via Backend API
    */
-  static async createOrder(amount: number, token: string): Promise<RazorpayOrderResponse> {
+  static async createOrder(
+    input: number | { amount?: number; bookingId?: string; token: string },
+    tokenParam?: string
+  ): Promise<RazorpayOrderResponse> {
+    let amount: number | undefined;
+    let bookingId: string | undefined;
+    let token: string | undefined;
+
+    if (typeof input === 'number') {
+      amount = input;
+      token = tokenParam;
+    } else if (input && typeof input === 'object') {
+      amount = input.amount;
+      bookingId = input.bookingId;
+      token = input.token;
+    }
+
     const apiBase = getApiBaseUrl();
     const res = await fetch(`${apiBase}/customer/payments/create-order`, {
       method: 'POST',
@@ -35,7 +51,7 @@ export class PaymentServiceAdapter {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ amount }),
+      body: JSON.stringify({ amount, bookingId }),
     });
 
     const data = await res.json();
@@ -103,8 +119,8 @@ export class PaymentServiceAdapter {
   }): Promise<PaymentVerificationResult> {
     params.onStateChange?.('PAYMENT_PROCESSING', 'Creating Razorpay order via backend...');
 
-    // Step 1: Create Order via Backend API
-    const orderData = await this.createOrder(params.amount, params.token);
+    // Step 1: Create Order via Backend API with bookingId binding
+    const orderData = await this.createOrder({ amount: params.amount, bookingId: params.bookingId, token: params.token });
 
     params.onStateChange?.(
       'PAYMENT_PROCESSING',

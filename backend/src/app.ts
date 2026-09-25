@@ -15,8 +15,15 @@ const app = express();
 app.use(helmet());
 app.use(cors({ origin: true, credentials: true }));
 
-// Body parsers
-app.use(express.json({ limit: '10mb' }));
+// Body parsers with rawBody retention for webhook signature verification
+app.use(
+  express.json({
+    limit: '10mb',
+    verify: (req: any, _res, buf) => {
+      req.rawBody = buf;
+    },
+  })
+);
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Rate limiting for public endpoints

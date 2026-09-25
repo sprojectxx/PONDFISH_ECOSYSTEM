@@ -68,7 +68,9 @@ export async function handleGracefulShutdown(signal: string) {
 process.on('SIGTERM', () => handleGracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => handleGracefulShutdown('SIGINT'));
 
-server.listen(PORT, () => {
-  logger.info(`🚀 PondFish Shared Backend Server Running on Port ${PORT}`);
-});
+if (process.env.NODE_ENV !== 'test') {
+  server.listen(PORT, () => {
+    logger.info(`🚀 PondFish Shared Backend Server Running on Port ${PORT}`);
+  });
+}
 

@@ -45,10 +45,24 @@ router.get('/discounts', async (_req, res, next) => {
   }
 });
 
+import { PaymentModule } from '../modules/paymentModule';
+
 router.get('/subscription-plans', async (_req, res, next) => {
   try {
     const plans = await SubscriptionModule.getSubscriptionPlans();
     return sendSuccess(res, plans, 'Subscription plans retrieved successfully');
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Server-to-server Razorpay Webhook Callback Endpoint (Unprotected)
+router.post('/webhooks/razorpay', async (req, res, next) => {
+  try {
+    const signature = (req.headers['x-razorpay-signature'] || req.headers['X-Razorpay-Signature']) as string;
+    const rawBody = (req as any).rawBody || JSON.stringify(req.body);
+    const result = await PaymentModule.handleRazorpayWebhook(rawBody, signature, req.body);
+    return sendSuccess(res, result, 'Razorpay webhook processed successfully');
   } catch (err) {
     next(err);
   }

@@ -272,4 +272,120 @@ export class PaymentModule {
       return payment;
     });
   }
+
+  static verifyRazorpayWebhookSignature(rawBody: string | Buffer | any, signature: string): boolean {
+    let secret = process.env.RAZORPAY_WEBHOOK_SECRET;
+    if (!secret || secret.trim() === '') {
+      if (process.env.NODE_ENV === 'production') {
+        throw new DomainError('ERR_RAZORPAY_CONFIG', 'CRITICAL: RAZORPAY_WEBHOOK_SECRET environment variable is missing in production environment.', 500);
+      }
+      secret = 'rzp_test_webhook_secret';
+    }
+
+    if (!signature || !rawBody) return false;
+
+    const payloadString: string | Buffer =
+      typeof rawBody === 'string' || Buffer.isBuffer(rawBody)
+        ? rawBody
+        : JSON.stringify(rawBody);
+
+    const expected = crypto.createHmac('sha256', secret.trim()).update(payloadString).digest('hex');
+    return safeTimingEqual(expected, signature);
+  }
+
+  static async handleRazorpayWebhook(rawBody: string | Buffer, signature: string, payload: any) {
+    // 1. Raw-body HMAC signature verification
+    const isValid = this.verifyRazorpayWebhookSignature(rawBody, signature);
+    if (!isValid) {
+      throw new DomainError('ERR_INVALID_WEBHOOK_SIGNATURE', 'Razorpay webhook HMAC signature verification failed.', 400);
+    }
+
+    const eventId = payload?.event_id || payload?.id;
+    const eventType = payload?.event || 'unknown';
+
+    return await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      // 2. Database-backed event idempotency check via webhook_events unique index
+      if (eventId) {
+        try {
+          await tx.webhookEvent.create({
+            data: {
+              eventId,
+              eventType,
+            },
+          });
+        } catch (err: any) {
+          if (err.code === 'P2002') {
+            return {
+              status: 'ALREADY_PROCESSED',
+              eventId,
+              eventType,
+              message: 'Webhook event already processed (idempotent).',
+            };
+          }
+          throw err;
+        }
+      }
+
+      // 3. Conservative event handling
+      if (['payment.captured', 'payment.authorized', 'order.paid'].includes(eventType)) {
+        const paymentEntity = payload?.payload?.payment?.entity || payload?.payload?.order?.entity;
+        const razorpayOrderId = paymentEntity?.order_id || paymentEntity?.id;
+        const razorpayPaymentId = paymentEntity?.id;
+
+        if (!razorpayOrderId) {
+          return { status: 'IGNORED', eventType, message: 'Missing order_id in webhook payload.' };
+        }
+
+        // Find associated booking
+        const booking = await tx.booking.findFirst({ where: { razorpayOrderId } });
+        if (!booking) {
+          return { status: 'IGNORED', eventType, message: `No booking found bound to Razorpay order ${razorpayOrderId}.` };
+        }
+
+        // Amount parsing (Razorpay sends amount in paise: 100000 = 1000.0)
+        let rawAmount = paymentEntity?.amount;
+        let amount = typeof rawAmount === 'number' ? rawAmount : booking.razorpayPaid;
+        if (amount > 100 && amount === Math.round(booking.razorpayPaid * 100)) {
+          amount = booking.razorpayPaid;
+        }
+
+        // Confirm booking PENDING -> CONFIRMED inside the transaction
+        if (booking.status === 'PENDING') {
+          await tx.booking.updateMany({
+            where: { id: booking.id, status: 'PENDING' },
+            data: { status: 'CONFIRMED' },
+          });
+
+          // Create payment record if not present
+          const existingPayment = await tx.payment.findFirst({
+            where: { razorpayOrderId },
+          });
+
+          if (!existingPayment) {
+            await tx.payment.create({
+              data: {
+                bookingId: booking.id,
+                razorpayOrderId,
+                razorpayPaymentId: razorpayPaymentId || `pay_wh_${Date.now()}`,
+                amount,
+                method: 'RAZORPAY',
+                status: 'SUCCESS',
+              },
+            });
+          }
+
+          return { status: 'PROCESSED', eventType, bookingId: booking.id, bookingStatus: 'CONFIRMED' };
+        } else {
+          return { status: 'IDEMPOTENT_SUCCESS', eventType, bookingId: booking.id, bookingStatus: booking.status };
+        }
+      }
+
+      // Safe acknowledgement for unsupported event types
+      return {
+        status: 'IGNORED',
+        eventType,
+        message: `Webhook event '${eventType}' acknowledged and ignored without business state mutation.`,
+      };
+    });
+  }
 }

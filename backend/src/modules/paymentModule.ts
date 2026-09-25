@@ -3,8 +3,25 @@ import { prisma } from '../prismaClient';
 import { DomainError } from '../middleware/errorHandler';
 import { Prisma } from '@prisma/client';
 
-const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID || 'rzp_test_mock_key';
-const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET || 'mock_secret_key';
+function getRazorpayKeySecret(): string {
+  const secret = process.env.RAZORPAY_KEY_SECRET;
+  if (!secret || secret.trim() === '') {
+    throw new DomainError('ERR_RAZORPAY_CONFIG', 'Razorpay secret key is not configured on the server.', 500);
+  }
+  return secret;
+}
+
+function getRazorpayKeyId(): string {
+  return process.env.RAZORPAY_KEY_ID || 'rzp_test_mock_key';
+}
+
+function safeTimingEqual(a: string, b: string): boolean {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  const bufA = Buffer.from(a, 'utf8');
+  const bufB = Buffer.from(b, 'utf8');
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
 
 export class PaymentModule {
   static async createRazorpayOrder(amount: number, currency = 'INR') {
@@ -13,7 +30,7 @@ export class PaymentModule {
       razorpayOrderId,
       amount,
       currency,
-      keyId: RAZORPAY_KEY_ID,
+      keyId: getRazorpayKeyId(),
     };
   }
 
@@ -25,14 +42,17 @@ export class PaymentModule {
     transactionId?: string;
     bookingId?: string;
   }) {
+    // Fail-closed configuration check
+    const secret = getRazorpayKeySecret();
+
     // Signature verification hash: hmac_sha256(order_id + "|" + payment_id, secret)
     const generatedSignature = crypto
-      .createHmac('sha256', RAZORPAY_KEY_SECRET)
+      .createHmac('sha256', secret)
       .update(data.razorpayOrderId + '|' + data.razorpayPaymentId)
       .digest('hex');
 
-    // In dev environment with mock secret, accept signature if equal or mock mode
-    const isValid = process.env.NODE_ENV === 'development' || generatedSignature === data.razorpaySignature;
+    // Strict timing-safe HMAC signature verification (no development bypass)
+    const isValid = safeTimingEqual(generatedSignature, data.razorpaySignature);
     if (!isValid) {
       throw new DomainError('ERR_RAZORPAY_VERIFY_FAILED', 'Razorpay payment signature verification failed.', 400);
     }

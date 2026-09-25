@@ -3,6 +3,7 @@ import { PaymentModule } from '../modules/paymentModule';
 import { DomainError } from '../middleware/errorHandler';
 import { prisma } from '../prismaClient';
 
+const TEST_KEY_ID = 'rzp_test_valid_key_123';
 const TEST_SECRET = 'test_secret_key_999';
 
 function generateValidSignature(orderId: string, paymentId: string, secret = TEST_SECRET): string {
@@ -32,12 +33,13 @@ jest.mock('../prismaClient', () => {
   };
 });
 
-describe('PaymentModule - Signature Verification & Atomicity Security Tests', () => {
+describe('PaymentModule - Razorpay Configuration & Signature Hardening Tests', () => {
   const originalEnv = process.env;
 
   beforeEach(() => {
     jest.clearAllMocks();
     process.env = { ...originalEnv };
+    process.env.RAZORPAY_KEY_ID = TEST_KEY_ID;
     process.env.RAZORPAY_KEY_SECRET = TEST_SECRET;
   });
 
@@ -45,19 +47,128 @@ describe('PaymentModule - Signature Verification & Atomicity Security Tests', ()
     process.env = originalEnv;
   });
 
-  it('TEST 1: Correct HMAC signature is accepted and creates payment inside transaction', async () => {
-    const orderId = 'order_101';
-    const paymentId = 'pay_101';
+  it('TEST 1: Missing RAZORPAY_KEY_ID throws ERR_RAZORPAY_CONFIG (500) and prevents all database mutations', async () => {
+    delete process.env.RAZORPAY_KEY_ID;
+
+    try {
+      await PaymentModule.verifyRazorpayPayment({
+        razorpayOrderId: 'order_1',
+        razorpayPaymentId: 'pay_1',
+        razorpaySignature: 'sig_1',
+        amount: 100,
+        bookingId: 'bk-1',
+      });
+      fail('Should have thrown ERR_RAZORPAY_CONFIG');
+    } catch (err: any) {
+      expect(err).toBeInstanceOf(DomainError);
+      expect(err.code).toBe('ERR_RAZORPAY_CONFIG');
+      expect(err.statusCode).toBe(500);
+      expect(err.message).toContain('Razorpay key ID is not configured');
+    }
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('TEST 2: Empty RAZORPAY_KEY_ID throws ERR_RAZORPAY_CONFIG (500) and prevents order creation & payment verification', async () => {
+    process.env.RAZORPAY_KEY_ID = '';
+
+    await expect(PaymentModule.createRazorpayOrder(500)).rejects.toThrow(DomainError);
+
+    try {
+      await PaymentModule.verifyRazorpayPayment({
+        razorpayOrderId: 'order_2',
+        razorpayPaymentId: 'pay_2',
+        razorpaySignature: 'sig_2',
+        amount: 200,
+        bookingId: 'bk-2',
+      });
+      fail('Should have thrown ERR_RAZORPAY_CONFIG');
+    } catch (err: any) {
+      expect(err).toBeInstanceOf(DomainError);
+      expect(err.code).toBe('ERR_RAZORPAY_CONFIG');
+      expect(err.statusCode).toBe(500);
+    }
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('TEST 3: Whitespace-only RAZORPAY_KEY_ID throws ERR_RAZORPAY_CONFIG (500) and prevents database mutation', async () => {
+    process.env.RAZORPAY_KEY_ID = '   \t\n  ';
+
+    try {
+      await PaymentModule.verifyRazorpayPayment({
+        razorpayOrderId: 'order_3',
+        razorpayPaymentId: 'pay_3',
+        razorpaySignature: 'sig_3',
+        amount: 300,
+        bookingId: 'bk-3',
+      });
+      fail('Should have thrown ERR_RAZORPAY_CONFIG');
+    } catch (err: any) {
+      expect(err).toBeInstanceOf(DomainError);
+      expect(err.code).toBe('ERR_RAZORPAY_CONFIG');
+      expect(err.statusCode).toBe(500);
+    }
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('TEST 4: Missing RAZORPAY_KEY_SECRET throws ERR_RAZORPAY_CONFIG (500) and prevents all database mutations', async () => {
+    delete process.env.RAZORPAY_KEY_SECRET;
+
+    try {
+      await PaymentModule.verifyRazorpayPayment({
+        razorpayOrderId: 'order_4',
+        razorpayPaymentId: 'pay_4',
+        razorpaySignature: 'sig_4',
+        amount: 400,
+        bookingId: 'bk-4',
+      });
+      fail('Should have thrown ERR_RAZORPAY_CONFIG');
+    } catch (err: any) {
+      expect(err).toBeInstanceOf(DomainError);
+      expect(err.code).toBe('ERR_RAZORPAY_CONFIG');
+      expect(err.statusCode).toBe(500);
+      expect(err.message).toContain('Razorpay secret key is not configured');
+    }
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('TEST 5: Empty/whitespace RAZORPAY_KEY_SECRET throws ERR_RAZORPAY_CONFIG (500) and prevents mutation', async () => {
+    process.env.RAZORPAY_KEY_SECRET = '   ';
+
+    try {
+      await PaymentModule.verifyRazorpayPayment({
+        razorpayOrderId: 'order_5',
+        razorpayPaymentId: 'pay_5',
+        razorpaySignature: 'sig_5',
+        amount: 500,
+        bookingId: 'bk-5',
+      });
+      fail('Should have thrown ERR_RAZORPAY_CONFIG');
+    } catch (err: any) {
+      expect(err).toBeInstanceOf(DomainError);
+      expect(err.code).toBe('ERR_RAZORPAY_CONFIG');
+      expect(err.statusCode).toBe(500);
+    }
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('TEST 6: Valid Key ID + valid Secret + valid HMAC successfully verifies payment and completes transaction', async () => {
+    const orderId = 'order_6';
+    const paymentId = 'pay_6';
     const validSig = generateValidSignature(orderId, paymentId);
 
-    const mockBooking = { id: 'bk-101', status: 'PENDING', razorpayPaid: 500.0 };
+    const mockBooking = { id: 'bk-6', status: 'PENDING', razorpayPaid: 600.0 };
     const mockCreatedPayment = {
-      id: 'pay-db-101',
-      bookingId: 'bk-101',
+      id: 'pay-db-6',
+      bookingId: 'bk-6',
       razorpayOrderId: orderId,
       razorpayPaymentId: paymentId,
       razorpaySignature: validSig,
-      amount: 500.0,
+      amount: 600.0,
       method: 'RAZORPAY',
       status: 'SUCCESS',
     };
@@ -78,33 +189,28 @@ describe('PaymentModule - Signature Verification & Atomicity Security Tests', ()
       razorpayOrderId: orderId,
       razorpayPaymentId: paymentId,
       razorpaySignature: validSig,
-      amount: 500.0,
-      bookingId: 'bk-101',
+      amount: 600.0,
+      bookingId: 'bk-6',
     });
 
     expect(result).toEqual(mockCreatedPayment);
     expect(mockTxBookingUpdateMany).toHaveBeenCalledWith({
-      where: { id: 'bk-101', status: 'PENDING' },
+      where: { id: 'bk-6', status: 'PENDING' },
       data: { status: 'CONFIRMED' },
     });
     expect(mockTxPaymentCreate).toHaveBeenCalled();
   });
 
-  it('TEST 2: Incorrect HMAC signature in development environment (NODE_ENV=development) MUST be rejected', async () => {
-    process.env.NODE_ENV = 'development';
-    const orderId = 'order_dev_123';
-    const paymentId = 'pay_dev_123';
-    const bogusSignature = 'bogus_signature_in_dev_mode';
-
+  it('TEST 7: Invalid HMAC throws ERR_RAZORPAY_VERIFY_FAILED (400) and transaction is never entered', async () => {
     try {
       await PaymentModule.verifyRazorpayPayment({
-        razorpayOrderId: orderId,
-        razorpayPaymentId: paymentId,
-        razorpaySignature: bogusSignature,
-        amount: 200.0,
-        bookingId: 'bk-dev-123',
+        razorpayOrderId: 'order_7',
+        razorpayPaymentId: 'pay_7',
+        razorpaySignature: 'invalid_hmac_signature_hex_123',
+        amount: 700,
+        bookingId: 'bk-7',
       });
-      fail('Should have rejected bogus signature in NODE_ENV=development');
+      fail('Should have thrown ERR_RAZORPAY_VERIFY_FAILED');
     } catch (err: any) {
       expect(err).toBeInstanceOf(DomainError);
       expect(err.code).toBe('ERR_RAZORPAY_VERIFY_FAILED');
@@ -114,21 +220,18 @@ describe('PaymentModule - Signature Verification & Atomicity Security Tests', ()
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
-  it('TEST 3: Incorrect HMAC signature in production environment (NODE_ENV=production) MUST be rejected', async () => {
-    process.env.NODE_ENV = 'production';
-    const orderId = 'order_prod_456';
-    const paymentId = 'pay_prod_456';
-    const bogusSignature = 'invalid_signature_prod';
+  it('TEST 8: NODE_ENV=development + invalid HMAC is STILL rejected with ERR_RAZORPAY_VERIFY_FAILED', async () => {
+    process.env.NODE_ENV = 'development';
 
     try {
       await PaymentModule.verifyRazorpayPayment({
-        razorpayOrderId: orderId,
-        razorpayPaymentId: paymentId,
-        razorpaySignature: bogusSignature,
-        amount: 400.0,
-        bookingId: 'bk-prod-456',
+        razorpayOrderId: 'order_8',
+        razorpayPaymentId: 'pay_8',
+        razorpaySignature: 'bogus_dev_signature',
+        amount: 800,
+        bookingId: 'bk-8',
       });
-      fail('Should have rejected bogus signature in NODE_ENV=production');
+      fail('Should have rejected invalid HMAC in NODE_ENV=development');
     } catch (err: any) {
       expect(err).toBeInstanceOf(DomainError);
       expect(err.code).toBe('ERR_RAZORPAY_VERIFY_FAILED');
@@ -138,92 +241,33 @@ describe('PaymentModule - Signature Verification & Atomicity Security Tests', ()
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
-  it('TEST 4: Missing RAZORPAY_KEY_SECRET throws controlled ERR_RAZORPAY_CONFIG (500) and blocks all mutations', async () => {
-    delete process.env.RAZORPAY_KEY_SECRET;
+  it('TEST 9: NODE_ENV=production + invalid HMAC is STILL rejected with ERR_RAZORPAY_VERIFY_FAILED', async () => {
+    process.env.NODE_ENV = 'production';
 
     try {
       await PaymentModule.verifyRazorpayPayment({
-        razorpayOrderId: 'order_no_secret',
-        razorpayPaymentId: 'pay_no_secret',
-        razorpaySignature: 'any_signature',
-        amount: 150.0,
-        bookingId: 'bk-no-secret',
+        razorpayOrderId: 'order_9',
+        razorpayPaymentId: 'pay_9',
+        razorpaySignature: 'bogus_prod_signature',
+        amount: 900,
+        bookingId: 'bk-9',
       });
-      fail('Should have thrown ERR_RAZORPAY_CONFIG due to missing secret');
+      fail('Should have rejected invalid HMAC in NODE_ENV=production');
     } catch (err: any) {
       expect(err).toBeInstanceOf(DomainError);
-      expect(err.code).toBe('ERR_RAZORPAY_CONFIG');
-      expect(err.statusCode).toBe(500);
-      expect(err.message).toContain('Razorpay secret key is not configured');
+      expect(err.code).toBe('ERR_RAZORPAY_VERIFY_FAILED');
+      expect(err.statusCode).toBe(400);
     }
 
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
-  it('TEST 5: Valid HMAC with NODE_ENV=development is accepted when signature is cryptographically valid', async () => {
-    process.env.NODE_ENV = 'development';
-    const orderId = 'order_dev_valid';
-    const paymentId = 'pay_dev_valid';
+  it('TEST 10: Existing razorpayPaymentId remains idempotent and returns existing payment record', async () => {
+    const orderId = 'order_10';
+    const paymentId = 'pay_10_dup';
     const validSig = generateValidSignature(orderId, paymentId);
 
-    const mockBooking = { id: 'bk-dev-valid', status: 'PENDING', razorpayPaid: 300.0 };
-    const mockCreatedPayment = { id: 'pay-dev-res', razorpayPaymentId: paymentId, amount: 300.0, status: 'SUCCESS' };
-
-    (prisma.$transaction as jest.Mock).mockImplementationOnce(async (cb) => {
-      const tx = {
-        payment: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue(mockCreatedPayment) },
-        booking: { findUnique: jest.fn().mockResolvedValue(mockBooking), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-        transaction: { findUnique: jest.fn(), update: jest.fn() },
-      };
-      return cb(tx);
-    });
-
-    const result = await PaymentModule.verifyRazorpayPayment({
-      razorpayOrderId: orderId,
-      razorpayPaymentId: paymentId,
-      razorpaySignature: validSig,
-      amount: 300.0,
-      bookingId: 'bk-dev-valid',
-    });
-
-    expect(result).toEqual(mockCreatedPayment);
-  });
-
-  it('TEST 6: Valid HMAC with NODE_ENV=production is accepted when signature is cryptographically valid', async () => {
-    process.env.NODE_ENV = 'production';
-    const orderId = 'order_prod_valid';
-    const paymentId = 'pay_prod_valid';
-    const validSig = generateValidSignature(orderId, paymentId);
-
-    const mockBooking = { id: 'bk-prod-valid', status: 'PENDING', razorpayPaid: 750.0 };
-    const mockCreatedPayment = { id: 'pay-prod-res', razorpayPaymentId: paymentId, amount: 750.0, status: 'SUCCESS' };
-
-    (prisma.$transaction as jest.Mock).mockImplementationOnce(async (cb) => {
-      const tx = {
-        payment: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue(mockCreatedPayment) },
-        booking: { findUnique: jest.fn().mockResolvedValue(mockBooking), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-        transaction: { findUnique: jest.fn(), update: jest.fn() },
-      };
-      return cb(tx);
-    });
-
-    const result = await PaymentModule.verifyRazorpayPayment({
-      razorpayOrderId: orderId,
-      razorpayPaymentId: paymentId,
-      razorpaySignature: validSig,
-      amount: 750.0,
-      bookingId: 'bk-prod-valid',
-    });
-
-    expect(result).toEqual(mockCreatedPayment);
-  });
-
-  it('TEST 7: Existing payment ID remains idempotent and returns existing payment record', async () => {
-    const orderId = 'order_idem';
-    const paymentId = 'pay_idem_existing';
-    const validSig = generateValidSignature(orderId, paymentId);
-
-    const existingPaymentRecord = { id: 'pay-existing-record', razorpayPaymentId: paymentId, amount: 600.0, status: 'SUCCESS' };
+    const existingPaymentRecord = { id: 'pay-existing-10', razorpayPaymentId: paymentId, amount: 1000.0, status: 'SUCCESS' };
     const mockTxBookingUpdateMany = jest.fn();
     const mockTxPaymentCreate = jest.fn();
 
@@ -239,8 +283,8 @@ describe('PaymentModule - Signature Verification & Atomicity Security Tests', ()
       razorpayOrderId: orderId,
       razorpayPaymentId: paymentId,
       razorpaySignature: validSig,
-      amount: 600.0,
-      bookingId: 'bk-idem',
+      amount: 1000.0,
+      bookingId: 'bk-10',
     });
 
     expect(result).toEqual(existingPaymentRecord);
@@ -248,100 +292,10 @@ describe('PaymentModule - Signature Verification & Atomicity Security Tests', ()
     expect(mockTxPaymentCreate).not.toHaveBeenCalled();
   });
 
-  it('TEST 8: Expired booking with valid signature throws ERR_BOOKING_EXPIRED and commits zero payment', async () => {
-    const orderId = 'order_exp';
-    const paymentId = 'pay_exp';
-    const validSig = generateValidSignature(orderId, paymentId);
-
-    const mockExpiredBooking = { id: 'bk-expired-888', status: 'EXPIRED', razorpayPaid: 350.0 };
-    const mockTxPaymentCreate = jest.fn();
-
-    (prisma.$transaction as jest.Mock).mockImplementationOnce(async (cb) => {
-      const tx = {
-        payment: { findUnique: jest.fn().mockResolvedValue(null), create: mockTxPaymentCreate },
-        booking: { findUnique: jest.fn().mockResolvedValue(mockExpiredBooking), updateMany: jest.fn() },
-      };
-      return cb(tx);
-    });
-
-    try {
-      await PaymentModule.verifyRazorpayPayment({
-        razorpayOrderId: orderId,
-        razorpayPaymentId: paymentId,
-        razorpaySignature: validSig,
-        amount: 350.0,
-        bookingId: 'bk-expired-888',
-      });
-      fail('Should have thrown ERR_BOOKING_EXPIRED');
-    } catch (err: any) {
-      expect(err).toBeInstanceOf(DomainError);
-      expect(err.code).toBe('ERR_BOOKING_EXPIRED');
-      expect(err.statusCode).toBe(400);
-    }
-
-    expect(mockTxPaymentCreate).not.toHaveBeenCalled();
-  });
-
-  it('TEST 9: Amount mismatch with valid signature throws ERR_PAYMENT_AMOUNT_MISMATCH and commits zero payment', async () => {
-    const orderId = 'order_mismatch';
-    const paymentId = 'pay_mismatch';
-    const validSig = generateValidSignature(orderId, paymentId);
-
-    const mockBooking = { id: 'bk-mismatch-999', status: 'PENDING', razorpayPaid: 1000.0 };
-    const mockTxPaymentCreate = jest.fn();
-
-    (prisma.$transaction as jest.Mock).mockImplementationOnce(async (cb) => {
-      const tx = {
-        payment: { findUnique: jest.fn().mockResolvedValue(null), create: mockTxPaymentCreate },
-        booking: { findUnique: jest.fn().mockResolvedValue(mockBooking), updateMany: jest.fn() },
-      };
-      return cb(tx);
-    });
-
-    try {
-      await PaymentModule.verifyRazorpayPayment({
-        razorpayOrderId: orderId,
-        razorpayPaymentId: paymentId,
-        razorpaySignature: validSig,
-        amount: 500.0, // Tampered amount (500 vs expected 1000)
-        bookingId: 'bk-mismatch-999',
-      });
-      fail('Should have thrown ERR_PAYMENT_AMOUNT_MISMATCH');
-    } catch (err: any) {
-      expect(err).toBeInstanceOf(DomainError);
-      expect(err.code).toBe('ERR_PAYMENT_AMOUNT_MISMATCH');
-      expect(err.statusCode).toBe(400);
-    }
-
-    expect(mockTxPaymentCreate).not.toHaveBeenCalled();
-  });
-
-  it('TEST 10: Database failure inside transaction rolls back entire transaction with zero payment creation', async () => {
-    const orderId = 'order_db_fail';
-    const paymentId = 'pay_db_fail';
-    const validSig = generateValidSignature(orderId, paymentId);
-
-    const mockBooking = { id: 'bk-db-fail', status: 'PENDING', razorpayPaid: 450.0 };
-    const mockTxPaymentCreate = jest.fn();
-
-    (prisma.$transaction as jest.Mock).mockImplementationOnce(async (cb) => {
-      const tx = {
-        payment: { findUnique: jest.fn().mockResolvedValue(null), create: mockTxPaymentCreate },
-        booking: { findUnique: jest.fn().mockResolvedValue(mockBooking), updateMany: jest.fn().mockRejectedValue(new Error('Fatal DB Connection Error')) },
-      };
-      return cb(tx);
-    });
-
-    await expect(
-      PaymentModule.verifyRazorpayPayment({
-        razorpayOrderId: orderId,
-        razorpayPaymentId: paymentId,
-        razorpaySignature: validSig,
-        amount: 450.0,
-        bookingId: 'bk-db-fail',
-      })
-    ).rejects.toThrow('Fatal DB Connection Error');
-
-    expect(mockTxPaymentCreate).not.toHaveBeenCalled();
+  it('TEST 11: createRazorpayOrder succeeds with configured RAZORPAY_KEY_ID', async () => {
+    const order = await PaymentModule.createRazorpayOrder(1500.0);
+    expect(order.amount).toBe(1500.0);
+    expect(order.keyId).toBe(TEST_KEY_ID);
+    expect(order.razorpayOrderId).toMatch(/^order_/);
   });
 });

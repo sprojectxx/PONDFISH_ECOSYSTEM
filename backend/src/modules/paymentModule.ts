@@ -12,7 +12,11 @@ function getRazorpayKeySecret(): string {
 }
 
 function getRazorpayKeyId(): string {
-  return process.env.RAZORPAY_KEY_ID || 'rzp_test_mock_key';
+  const keyId = process.env.RAZORPAY_KEY_ID;
+  if (!keyId || keyId.trim() === '') {
+    throw new DomainError('ERR_RAZORPAY_CONFIG', 'Razorpay key ID is not configured on the server.', 500);
+  }
+  return keyId;
 }
 
 function safeTimingEqual(a: string, b: string): boolean {
@@ -25,12 +29,13 @@ function safeTimingEqual(a: string, b: string): boolean {
 
 export class PaymentModule {
   static async createRazorpayOrder(amount: number, currency = 'INR') {
+    const keyId = getRazorpayKeyId();
     const razorpayOrderId = 'order_' + Math.random().toString(36).substring(2, 12);
     return {
       razorpayOrderId,
       amount,
       currency,
-      keyId: getRazorpayKeyId(),
+      keyId,
     };
   }
 
@@ -44,6 +49,7 @@ export class PaymentModule {
   }) {
     // Fail-closed configuration check
     const secret = getRazorpayKeySecret();
+    const _keyId = getRazorpayKeyId();
 
     // Signature verification hash: hmac_sha256(order_id + "|" + payment_id, secret)
     const generatedSignature = crypto

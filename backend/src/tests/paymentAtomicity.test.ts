@@ -199,6 +199,10 @@ describe('PaymentModule - Full Security, Fail-Closed & Atomicity Suite', () => {
       data: { status: 'CONFIRMED' },
     });
     expect(mockTxPaymentCreate).toHaveBeenCalled();
+    // Assert invocation order: Booking CAS mutation must execute before Payment creation
+    expect(mockTxBookingUpdateMany.mock.invocationCallOrder[0]).toBeLessThan(
+      mockTxPaymentCreate.mock.invocationCallOrder[0]
+    );
   });
 
   it('TEST 7: Invalid HMAC throws ERR_RAZORPAY_VERIFY_FAILED (400) and transaction is never entered', async () => {
@@ -394,18 +398,21 @@ describe('PaymentModule - Full Security, Fail-Closed & Atomicity Suite', () => {
     expect(mockTxPaymentCreate).not.toHaveBeenCalled();
   });
 
-  it('TEST 14: Database failure inside transaction rolls back entire transaction with zero payment creation', async () => {
+  it('TEST 14: Database failure after transactional mutation (booking update succeeds, payment create fails) propagates error from transaction callback', async () => {
+    // Note: Mock unit test verifies application transaction callback execution flow and error propagation.
+    // Real PostgreSQL row rollback requires execution against a live PostgreSQL server.
     const orderId = 'order_14';
     const paymentId = 'pay_14';
     const validSig = generateValidSignature(orderId, paymentId);
 
     const mockBooking = { id: 'bk-14', status: 'PENDING', razorpayPaid: 250.0 };
-    const mockTxPaymentCreate = jest.fn();
+    const mockTxBookingUpdateMany = jest.fn().mockResolvedValue({ count: 1 });
+    const mockTxPaymentCreate = jest.fn().mockRejectedValue(new Error('Database write failure on payment creation'));
 
     (prisma.$transaction as jest.Mock).mockImplementationOnce(async (cb) => {
       const tx = {
         payment: { findUnique: jest.fn().mockResolvedValue(null), create: mockTxPaymentCreate },
-        booking: { findUnique: jest.fn().mockResolvedValue(mockBooking), updateMany: jest.fn().mockRejectedValue(new Error('Database write failure')) },
+        booking: { findUnique: jest.fn().mockResolvedValue(mockBooking), updateMany: mockTxBookingUpdateMany },
       };
       return cb(tx);
     });
@@ -418,9 +425,17 @@ describe('PaymentModule - Full Security, Fail-Closed & Atomicity Suite', () => {
         amount: 250.0,
         bookingId: 'bk-14',
       })
-    ).rejects.toThrow('Database write failure');
+    ).rejects.toThrow('Database write failure on payment creation');
 
-    expect(mockTxPaymentCreate).not.toHaveBeenCalled();
+    // Assert that booking update executed first inside transaction callback before payment creation failed
+    expect(mockTxBookingUpdateMany).toHaveBeenCalledWith({
+      where: { id: 'bk-14', status: 'PENDING' },
+      data: { status: 'CONFIRMED' },
+    });
+    expect(mockTxPaymentCreate).toHaveBeenCalled();
+    expect(mockTxBookingUpdateMany.mock.invocationCallOrder[0]).toBeLessThan(
+      mockTxPaymentCreate.mock.invocationCallOrder[0]
+    );
   });
 
   it('TEST 15: Concurrent payment verification vs expiration race (updateMany count === 0 after expiration wins) throws ERR_BOOKING_EXPIRED and creates no payment', async () => {

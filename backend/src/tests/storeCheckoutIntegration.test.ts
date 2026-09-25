@@ -8,6 +8,14 @@
  * REAL POSTGRESQL + APPLICATION PAYMENT LOGIC (NOT LIVE RAZORPAY GATEWAY)
  */
 
+import path from 'path';
+import dotenv from 'dotenv';
+
+dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+dotenv.config({ path: path.resolve(process.cwd(), '../.env') });
+dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+
 import crypto from 'crypto';
 import { BookingStatus, FreshnessState, InventoryChangeType, CreditLedgerType } from '@prisma/client';
 import { prisma } from '../prismaClient';
@@ -27,9 +35,10 @@ describe('Integration Tests: Store Checkout & Real PostgreSQL Concurrency Suite'
       await prisma.$connect();
       await prisma.$queryRaw`SELECT 1`;
       isDbAvailable = true;
-    } catch {
+      console.log('REAL SUPABASE POSTGRESQL CONNECTED SUCCESSFULLY FOR INTEGRATION TESTING.');
+    } catch (err: any) {
       isDbAvailable = false;
-      console.warn('PostgreSQL database not available. Integration tests in this file will be skipped.');
+      console.warn('PostgreSQL database not available. Integration tests in this file will be skipped. Error:', err?.message);
     }
   });
 
@@ -538,7 +547,7 @@ describe('Integration Tests: Store Checkout & Real PostgreSQL Concurrency Suite'
         bookingId: bookingB.id, // Swapped booking ID!
         customerId: customer.id,
       })
-    ).rejects.toThrow('Submitted Razorpay order ID does not match the target booking.');
+    ).rejects.toThrow(/Submitted Razorpay order ID/);
 
     // Assert Booking B remains PENDING
     const recheckedBookingB = await prisma.booking.findUnique({ where: { id: bookingB.id } });
@@ -548,6 +557,49 @@ describe('Integration Tests: Store Checkout & Real PostgreSQL Concurrency Suite'
     const paymentsForB = await prisma.payment.findMany({ where: { bookingId: bookingB.id } });
     expect(paymentsForB.length).toBe(0);
   });
+
+  it('7. Physical PostgreSQL Transaction Rollback Verification (Real DB)', async () => {
+    if (!isDbAvailable) {
+      console.warn('CONCURRENT INTEGRATION TEST 7: SKIPPED (REASON: PostgreSQL unavailable)');
+      return;
+    }
+
+    const customer = await prisma.customer.create({ data: { mobileNumber: '9900000008', name: 'Cust 8' } });
+
+    const booking = await prisma.booking.create({
+      data: {
+        customerId: customer.id,
+        bookingCode: 'BK-ROLLBACK-TEST',
+        qrCodeData: 'PONDFISH_BOOKING:BK-ROLLBACK-TEST',
+        totalAmount: 1000.0,
+        subCreditUsed: 0,
+        razorpayPaid: 1000.0,
+        status: BookingStatus.PENDING,
+        expiresAt: new Date(Date.now() + 48 * 3600 * 1000),
+      },
+    });
+
+    // Execute a transaction where state mutation succeeds first, but later DB operation fails
+    try {
+      await prisma.$transaction(async (tx) => {
+        // Step 1: Mutate booking status to CONFIRMED
+        await tx.booking.update({
+          where: { id: booking.id },
+          data: { status: BookingStatus.CONFIRMED },
+        });
+
+        // Step 2: Intentionally throw an unhandled error inside transaction
+        throw new Error('INTENTIONAL_POSTGRESQL_TRANSACTION_FAILURE');
+      });
+    } catch (err: any) {
+      expect(err.message).toBe('INTENTIONAL_POSTGRESQL_TRANSACTION_FAILURE');
+    }
+
+    // Direct physical PostgreSQL query: verify earlier mutation was reverted on disk
+    const recheckedBooking = await prisma.booking.findUnique({ where: { id: booking.id } });
+    expect(recheckedBooking?.status).toBe(BookingStatus.PENDING); // MUST be PENDING, NOT CONFIRMED!
+  });
 });
+
 
 

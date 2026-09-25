@@ -3,20 +3,16 @@ import { prisma } from '../prismaClient';
 import { DomainError } from '../middleware/errorHandler';
 import { Prisma } from '@prisma/client';
 
-function getRazorpayKeySecret(): string {
+function validateRazorpayConfig(): { keyId: string; secret: string } {
   const secret = process.env.RAZORPAY_KEY_SECRET;
   if (!secret || secret.trim() === '') {
     throw new DomainError('ERR_RAZORPAY_CONFIG', 'Razorpay secret key is not configured on the server.', 500);
   }
-  return secret;
-}
-
-function getRazorpayKeyId(): string {
   const keyId = process.env.RAZORPAY_KEY_ID;
   if (!keyId || keyId.trim() === '') {
     throw new DomainError('ERR_RAZORPAY_CONFIG', 'Razorpay key ID is not configured on the server.', 500);
   }
-  return keyId;
+  return { keyId, secret };
 }
 
 function safeTimingEqual(a: string, b: string): boolean {
@@ -29,7 +25,7 @@ function safeTimingEqual(a: string, b: string): boolean {
 
 export class PaymentModule {
   static async createRazorpayOrder(amount: number, currency = 'INR') {
-    const keyId = getRazorpayKeyId();
+    const { keyId } = validateRazorpayConfig();
     const razorpayOrderId = 'order_' + Math.random().toString(36).substring(2, 12);
     return {
       razorpayOrderId,
@@ -48,8 +44,7 @@ export class PaymentModule {
     bookingId?: string;
   }) {
     // Fail-closed configuration check
-    const secret = getRazorpayKeySecret();
-    const _keyId = getRazorpayKeyId();
+    const { secret } = validateRazorpayConfig();
 
     // Signature verification hash: hmac_sha256(order_id + "|" + payment_id, secret)
     const generatedSignature = crypto

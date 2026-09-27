@@ -27,4 +27,40 @@ export class ReportingModule {
       paymentMethodCounts,
     };
   }
+
+  static async getRecentPublicTransactions(limit = 10) {
+    const take = Math.min(Math.max(1, limit), 50);
+    const transactions = await prisma.transaction.findMany({
+      where: { status: 'COMPLETED' },
+      orderBy: { createdAt: 'desc' },
+      take,
+      include: {
+        customer: {
+          select: { name: true },
+        },
+        transactionItems: {
+          include: {
+            fish: {
+              select: { name: true },
+            },
+          },
+        },
+      },
+    });
+
+    return transactions.map((t: any) => ({
+      transactionId: t.id,
+      transactionNumber: t.transactionNumber,
+      customerName: t.customer?.name || 'In-Store Customer',
+      totalAmount: t.finalPaidAmount || t.totalBillAmount,
+      paymentMethod: t.paymentMethod,
+      timestamp: t.createdAt,
+      items: (t.transactionItems || []).map((item: any) => ({
+        fishName: item.fish?.name || 'Fresh Fish',
+        quantityKg: item.quantityKg,
+        unitPrice: item.unitPrice,
+        subtotal: item.subtotal,
+      })),
+    }));
+  }
 }

@@ -52,6 +52,7 @@ router.get('/bookings', async (req, res, next) => {
 router.post('/bookings/:id/complete', async (req, res, next) => {
   try {
     const booking = await BookingModule.markBookingComplete(req.params.id, req.user!.id);
+    await RealtimeModule.emitBookingCompleted(booking);
     return sendSuccess(res, booking, 'Booking pickup completed successfully');
   } catch (err) {
     next(err);

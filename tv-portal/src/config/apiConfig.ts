@@ -22,6 +22,9 @@ export const TV_API_CONFIG = {
   get socketUrl() {
     return getTvSocketUrl();
   },
+  get apiBaseUrl() {
+    return `${getTvSocketUrl()}/api/v1`;
+  },
   reconnectionAttempts: 10,
   timeoutMs: 5000,
 };

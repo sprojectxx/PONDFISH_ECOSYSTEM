@@ -203,6 +203,52 @@ export default function App() {
     return () => clearInterval(interval);
   }, [latestBooking]);
 
+  // Realtime Socket listener for Customer Booking Completion Notification
+  useEffect(() => {
+    if (!latestBooking || (latestBooking.status !== 'PENDING' && latestBooking.status !== 'CONFIRMED')) {
+      return;
+    }
+
+    let socket: any = null;
+    try {
+      const { io } = require('socket.io-client');
+      socket = io(API_BASE, {
+        reconnectionAttempts: 5,
+        timeout: 10000,
+        autoConnect: true,
+      });
+
+      const handleRealtimeUpdate = (data: any) => {
+        if (!data) return;
+        const eventBookingId = data.bookingId || data.id;
+        const eventCustomerId = data.customerId;
+
+        if (
+          (eventBookingId && String(eventBookingId) === String(latestBooking.id)) ||
+          (eventCustomerId && profile?.id && String(eventCustomerId) === String(profile.id))
+        ) {
+          fetchAuthoritativeBooking(latestBooking.id);
+          fetchBookingHistory();
+        }
+      };
+
+      socket.on('BOOKING_COMPLETED', handleRealtimeUpdate);
+      socket.on('TRANSACTION_COMPLETED', handleRealtimeUpdate);
+    } catch (err) {
+      console.warn('Customer socket listener warning:', err);
+    }
+
+    return () => {
+      if (socket) {
+        try {
+          socket.off('BOOKING_COMPLETED');
+          socket.off('TRANSACTION_COMPLETED');
+          socket.disconnect();
+        } catch {}
+      }
+    };
+  }, [latestBooking?.id, latestBooking?.status, profile?.id, token]);
+
   /**
    * Refetch Authoritative Booking State from Backend DB
    */

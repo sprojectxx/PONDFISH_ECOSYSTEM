@@ -3,6 +3,9 @@ import { CategoryModule } from '../modules/categoryModule';
 import { FishModule } from '../modules/fishModule';
 import { AvailabilityModule } from '../modules/availabilityModule';
 import { SubscriptionModule } from '../modules/subscriptionModule';
+import { ReportingModule } from '../modules/reportingModule';
+import { GPSModule } from '../modules/gpsModule';
+import { PaymentModule } from '../modules/paymentModule';
 import { sendSuccess } from '../utils/response';
 
 const router = Router();
@@ -45,12 +48,29 @@ router.get('/discounts', async (_req, res, next) => {
   }
 });
 
-import { PaymentModule } from '../modules/paymentModule';
-
 router.get('/subscription-plans', async (_req, res, next) => {
   try {
     const plans = await SubscriptionModule.getSubscriptionPlans();
     return sendSuccess(res, plans, 'Subscription plans retrieved successfully');
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/transactions/recent', async (req, res, next) => {
+  try {
+    const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 10;
+    const transactions = await ReportingModule.getRecentPublicTransactions(limit);
+    return sendSuccess(res, transactions, 'Recent transactions retrieved successfully');
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/gps/live', async (_req, res, next) => {
+  try {
+    const journey = await GPSModule.getLiveCustomerJourney();
+    return sendSuccess(res, journey, 'Live truck journey retrieved successfully');
   } catch (err) {
     next(err);
   }

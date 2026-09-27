@@ -84,7 +84,7 @@ export default function App() {
     totalKgSold: 0
   });
 
-  const [truckStatus] = useState({
+  const [truckStatus, setTruckStatus] = useState({
     name: 'Mobile Delivery Truck #1',
     driver: 'Active Duty Operator',
     location: 'Sector 62 Main Route',
@@ -99,6 +99,91 @@ export default function App() {
 
   const seenIdsRef = useRef<Set<string>>(new Set());
   const celebrationTimerRef = useRef<any>(null);
+
+  // Initial REST Data Hydration on Startup / Boot
+  useEffect(() => {
+    let isMounted = true;
+
+    const hydrateRecentTransactions = async () => {
+      try {
+        const res = await fetch(`${TV_API_CONFIG.apiBaseUrl}/public/transactions/recent?limit=10`);
+        if (!res.ok) return;
+        const body = await res.json();
+        if (!body.success || !Array.isArray(body.data)) return;
+
+        if (!isMounted) return;
+
+        const normalizedList: DisplayTransaction[] = [];
+        let rev = 0;
+        let orders = 0;
+        let kg = 0;
+
+        for (const item of body.data) {
+          const norm = normalizeTransactionEvent(item);
+          if (norm && norm.transactionId && !seenIdsRef.current.has(norm.transactionId)) {
+            seenIdsRef.current.add(norm.transactionId);
+            normalizedList.push(norm);
+            rev += norm.totalAmount;
+            orders += 1;
+            kg += norm.items.reduce((acc, i) => acc + i.quantityKg, 0);
+          }
+        }
+
+        if (normalizedList.length > 0) {
+          setRecentTransactions(normalizedList);
+          setStoreStats({
+            todayRevenue: rev,
+            todayOrders: orders,
+            totalKgSold: kg,
+          });
+        }
+      } catch (err) {
+        console.warn('TV initial REST hydration warning:', err);
+      }
+    };
+
+    const fetchLiveTruckStatus = async () => {
+      try {
+        const res = await fetch(`${TV_API_CONFIG.apiBaseUrl}/public/gps/live`);
+        if (!res.ok) return;
+        const body = await res.json();
+        if (!isMounted) return;
+
+        if (body.success && body.data) {
+          const journey = body.data;
+          const lastPos = journey.positions?.[0];
+          setTruckStatus({
+            name: `Truck ${journey.truckNumber || '#1'}`,
+            driver: journey.driverName || 'Active Driver',
+            location: lastPos ? `Lat: ${lastPos.latitude.toFixed(4)}, Lng: ${lastPos.longitude.toFixed(4)}` : 'Active Route',
+            status: 'ACTIVE_ROUTE',
+            lat: lastPos?.latitude || 16.5062,
+            lng: lastPos?.longitude || 80.6480,
+            speedKm: lastPos?.speed || 24,
+          });
+        } else {
+          setTruckStatus({
+            name: 'Mobile Delivery Truck #1',
+            driver: 'Store Operator',
+            location: 'No Active Published Journey',
+            status: 'NO_ACTIVE_ROUTE',
+            lat: 16.5062,
+            lng: 80.6480,
+            speedKm: 0,
+          });
+        }
+      } catch {
+        // Fallback to default standby state on network exception
+      }
+    };
+
+    hydrateRecentTransactions();
+    fetchLiveTruckStatus();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Audio chime synthesis
   const playChime = useCallback(() => {

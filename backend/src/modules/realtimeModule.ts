@@ -43,6 +43,28 @@ export class RealtimeModule {
     io.emit('TRANSACTION_COMPLETED', payload);
   }
 
+  static async emitBookingCompleted(booking: any) {
+    if (!booking) return;
+
+    const payload = {
+      bookingId: booking.id,
+      bookingCode: booking.bookingCode,
+      customerId: booking.customerId,
+      status: 'COMPLETED',
+      timestamp: new Date(),
+    };
+
+    await prisma.realtimeEvent.create({
+      data: {
+        eventType: 'BOOKING_COMPLETED',
+        payload: JSON.stringify(payload),
+      },
+    });
+
+    logger.info(`📢 Socket.io Emitting BOOKING_COMPLETED for booking ${booking.bookingCode}`);
+    io.emit('BOOKING_COMPLETED', payload);
+  }
+
   static async emitGPSLocationUpdate(journeyId: string, latitude: number, longitude: number) {
     const payload = { journeyId, latitude, longitude, timestamp: new Date() };
 

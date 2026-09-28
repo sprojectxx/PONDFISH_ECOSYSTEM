@@ -226,7 +226,7 @@ describe('Admin Portal Hardening & Verification Unit Tests', () => {
 
       const workerPayload = {
         name: 'Suresh Worker',
-        email: 'suresh@pondfish.com',
+        mobileNumber: '9876543210',
         password: 'securePassword123',
       };
 

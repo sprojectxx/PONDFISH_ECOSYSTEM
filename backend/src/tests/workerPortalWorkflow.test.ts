@@ -50,24 +50,24 @@ describe('Worker Portal Operations & Workflow Unit Tests', () => {
   });
 
   describe('1. Worker Authentication', () => {
-    it('rejects authentication when worker email is not found', async () => {
+    it('rejects authentication when worker mobile number is not found', async () => {
       (prisma.worker.findUnique as jest.Mock).mockResolvedValueOnce(null);
 
       await expect(
-        AuthModule.workerLogin('nonexistent@pondfish.com', 'password123')
+        AuthModule.workerLogin('9999999999', 'password123')
       ).rejects.toThrow(DomainError);
     });
 
     it('rejects authentication when password is invalid', async () => {
       (prisma.worker.findUnique as jest.Mock).mockResolvedValueOnce({
         id: 'worker-user-1',
-        email: 'worker@pondfish.com',
+        mobileNumber: '9876543210',
         active: true,
         passwordHash: '$2b$10$invalidhash',
       });
 
       await expect(
-        AuthModule.workerLogin('worker@pondfish.com', 'wrongpassword')
+        AuthModule.workerLogin('9876543210', 'wrongpassword')
       ).rejects.toThrow(DomainError);
     });
   });

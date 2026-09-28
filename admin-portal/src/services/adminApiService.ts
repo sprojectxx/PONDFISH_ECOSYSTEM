@@ -50,7 +50,7 @@ export async function receiveInventoryBatch(payload: { fishId: string; batchCode
   });
 }
 
-export async function createWorkerAccount(payload: { name: string; email: string; password: string }) {
+export async function createWorkerAccount(payload: { name: string; mobileNumber: string; password: string }) {
   return adminApiFetch('/admin/workers', {
     method: 'POST',
     body: JSON.stringify(payload),

@@ -14,8 +14,8 @@ const router = Router();
 // Worker Auth (Unprotected)
 router.post('/auth/login', async (req, res, next) => {
   try {
-    const { email, password } = req.body;
-    const result = await AuthModule.workerLogin(email, password);
+    const { mobileNumber, password } = req.body;
+    const result = await AuthModule.workerLogin(mobileNumber, password);
     return sendSuccess(res, result, 'Worker login successful');
   } catch (err) {
     next(err);

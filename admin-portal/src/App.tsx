@@ -438,7 +438,6 @@ export default function App() {
         body: JSON.stringify({
           name: workerName.trim(),
           mobileNumber: workerPhone.trim(),
-          email: workerPhone.trim(),
           password: workerPassword,
         }),
       });

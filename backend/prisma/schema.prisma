@@ -85,7 +85,7 @@ model Customer {
 
 model Worker {
   id           String   @id @default(uuid()) @db.Uuid
-  email        String   @unique
+  mobileNumber String   @unique @map("mobile_number")
   passwordHash String   @map("password_hash")
   name         String
   active       Boolean  @default(true)

@@ -53,24 +53,28 @@ export class AuthModule {
     return { token, customer };
   }
 
-  static async workerLogin(email: string, password: string) {
-    const worker = await prisma.worker.findUnique({ where: { email } });
+  static async workerLogin(mobileNumber: string, password: string) {
+    if (!mobileNumber || !password) {
+      throw new DomainError('ERR_INVALID_INPUT', 'Mobile number and password are required.', 400);
+    }
+
+    const worker = await prisma.worker.findUnique({ where: { mobileNumber } });
     if (!worker || !worker.active) {
       throw new DomainError('ERR_UNAUTHORIZED', 'Invalid credentials or inactive account.', 401);
     }
 
     const validPassword = await bcrypt.compare(password, worker.passwordHash);
     if (!validPassword) {
-      throw new DomainError('ERR_UNAUTHORIZED', 'Invalid email or password.', 401);
+      throw new DomainError('ERR_UNAUTHORIZED', 'Invalid mobile number or password.', 401);
     }
 
     const token = jwt.sign(
-      { id: worker.id, role: 'WORKER', email: worker.email },
+      { id: worker.id, role: 'WORKER', mobileNumber: worker.mobileNumber },
       getJwtSecret(),
       { expiresIn: '12h' }
     );
 
-    return { token, worker: { id: worker.id, name: worker.name, email: worker.email } };
+    return { token, worker: { id: worker.id, name: worker.name, mobileNumber: worker.mobileNumber } };
   }
 
   static async adminLogin(email: string, password: string) {

@@ -23,7 +23,7 @@ describe('WorkerModule.createWorker', () => {
     (prisma.worker.findUnique as jest.Mock).mockResolvedValueOnce(null);
     (prisma.worker.create as jest.Mock).mockResolvedValueOnce({
       id: 'worker-uuid-1',
-      email: '9876543210',
+      mobileNumber: '9876543210',
       name: 'STEVANSON PAMISHETTY',
       active: true,
       createdAt: new Date('2026-09-28T10:00:00Z'),
@@ -35,11 +35,11 @@ describe('WorkerModule.createWorker', () => {
       password: 'SecurePassword123',
     });
 
-    expect(prisma.worker.findUnique).toHaveBeenCalledWith({ where: { email: '9876543210' } });
+    expect(prisma.worker.findUnique).toHaveBeenCalledWith({ where: { mobileNumber: '9876543210' } });
     expect(prisma.worker.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          email: '9876543210',
+          mobileNumber: '9876543210',
           name: 'STEVANSON PAMISHETTY',
           active: true,
         }),
@@ -72,10 +72,10 @@ describe('WorkerModule.createWorker', () => {
     }
   });
 
-  it('rejects worker creation when duplicate mobile or email exists (409 Conflict)', async () => {
+  it('rejects worker creation when duplicate mobile number exists (409 Conflict)', async () => {
     (prisma.worker.findUnique as jest.Mock).mockResolvedValueOnce({
       id: 'existing-worker-id',
-      email: '9876543210',
+      mobileNumber: '9876543210',
       name: 'Existing Worker',
       active: true,
     });

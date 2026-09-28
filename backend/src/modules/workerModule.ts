@@ -5,24 +5,23 @@ import { DomainError } from '../middleware/errorHandler';
 export class WorkerModule {
   static async getAllWorkers() {
     const list = await prisma.worker.findMany({
-      select: { id: true, email: true, name: true, active: true, createdAt: true },
+      select: { id: true, mobileNumber: true, name: true, active: true, createdAt: true },
       orderBy: { createdAt: 'desc' },
     });
     return list.map((w) => ({
       id: w.id,
       name: w.name,
-      email: w.email,
-      mobileNumber: w.email,
+      mobileNumber: w.mobileNumber,
       role: 'WORKER',
       active: w.active,
       createdAt: w.createdAt,
     }));
   }
 
-  static async createWorker(data: { email?: string; mobileNumber?: string; password?: string; name?: string }) {
+  static async createWorker(data: { mobileNumber?: string; password?: string; name?: string }) {
     const name = data.name?.trim();
     const password = data.password;
-    const identifier = (data.mobileNumber || data.email || '').trim();
+    const mobileNumber = data.mobileNumber?.trim();
 
     if (!name) {
       throw new DomainError('ERR_INVALID_INPUT', 'Worker name is required.', 400);
@@ -32,37 +31,22 @@ export class WorkerModule {
       throw new DomainError('ERR_INVALID_INPUT', 'Password is required.', 400);
     }
 
-    if (!identifier) {
-      throw new DomainError('ERR_INVALID_INPUT', 'Mobile number or email is required.', 400);
+    if (!mobileNumber) {
+      throw new DomainError('ERR_INVALID_INPUT', 'Mobile number is required.', 400);
     }
 
-    // Validate mobile number format when mobileNumber is supplied
-    if (data.mobileNumber !== undefined && data.mobileNumber !== null && data.mobileNumber.trim().length > 0) {
-      const cleanMobile = data.mobileNumber.trim();
-      const phoneRegex = /^\+?[0-9]{10,15}$/;
-      if (!phoneRegex.test(cleanMobile)) {
-        throw new DomainError(
-          'ERR_INVALID_MOBILE',
-          'Invalid mobile number format. Please enter a valid 10 to 15 digit phone number.',
-          400
-        );
-      }
-    } else if (data.email !== undefined && data.email !== null && data.email.trim().length > 0) {
-      const cleanEmail = data.email.trim();
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      const phoneRegex = /^\+?[0-9]{10,15}$/;
-      if (!emailRegex.test(cleanEmail) && !phoneRegex.test(cleanEmail)) {
-        throw new DomainError(
-          'ERR_INVALID_IDENTIFIER',
-          'Invalid format. Please enter a valid email address or 10 to 15 digit mobile number.',
-          400
-        );
-      }
+    const phoneRegex = /^\+?[0-9]{10,15}$/;
+    if (!phoneRegex.test(mobileNumber)) {
+      throw new DomainError(
+        'ERR_INVALID_MOBILE',
+        'Invalid mobile number format. Please enter a valid 10 to 15 digit phone number.',
+        400
+      );
     }
 
-    const existing = await prisma.worker.findUnique({ where: { email: identifier } });
+    const existing = await prisma.worker.findUnique({ where: { mobileNumber } });
     if (existing) {
-      throw new DomainError('ERR_WORKER_EXISTS', 'A worker account with this mobile number or email already exists.', 409);
+      throw new DomainError('ERR_WORKER_EXISTS', 'A worker account with this mobile number already exists.', 409);
     }
 
     const passwordHash = await bcrypt.hash(password, 12);
@@ -70,26 +54,25 @@ export class WorkerModule {
     try {
       const worker = await prisma.worker.create({
         data: {
-          email: identifier,
+          mobileNumber,
           passwordHash,
           name,
           active: true,
         },
-        select: { id: true, email: true, name: true, active: true, createdAt: true },
+        select: { id: true, mobileNumber: true, name: true, active: true, createdAt: true },
       });
 
       return {
         id: worker.id,
         name: worker.name,
-        email: worker.email,
-        mobileNumber: worker.email,
+        mobileNumber: worker.mobileNumber,
         role: 'WORKER',
         active: worker.active,
         createdAt: worker.createdAt,
       };
     } catch (err: any) {
       if (err.code === 'P2002') {
-        throw new DomainError('ERR_WORKER_EXISTS', 'A worker account with this mobile number or email already exists.', 409);
+        throw new DomainError('ERR_WORKER_EXISTS', 'A worker account with this mobile number already exists.', 409);
       }
       throw err;
     }

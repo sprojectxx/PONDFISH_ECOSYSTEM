@@ -51,16 +51,16 @@ async function main() {
   // 3. Worker User
   const workerPassword = await bcrypt.hash('Worker@123456', 12);
   const worker = await prisma.worker.upsert({
-    where: { email: 'worker@pondfish.com' },
+    where: { mobileNumber: '9876543210' },
     update: {},
     create: {
-      email: 'worker@pondfish.com',
+      mobileNumber: '9876543210',
       passwordHash: workerPassword,
       name: 'Store Worker - Raju',
       active: true,
     },
   });
-  console.log('👷 Worker user seeded:', worker.email);
+  console.log('👷 Worker user seeded:', worker.mobileNumber);
 
   // 4. Categories
   const liveCategory = await prisma.category.upsert({

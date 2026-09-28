@@ -12,6 +12,7 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "ts-node prisma/seed.ts",
     "admin:provision": "ts-node prisma/seedAdmin.ts",
+    "demo:seed": "ts-node prisma/seedDemo.ts",
     "test": "jest"
   },
   "dependencies": {

@@ -12,6 +12,7 @@
     "tv-portal"
   ],
   "scripts": {
+    "dev": "concurrently --kill-others-on-fail \"npm run dev:backend\" \"npm run dev:website\" \"npm run dev:worker\" \"npm run dev:admin\" \"npm run dev:tv\"",
     "dev:backend": "npm run dev --workspace=backend",
     "dev:website": "npm run dev --workspace=public-website",
     "dev:worker": "npm run dev --workspace=worker-portal",
@@ -39,6 +40,7 @@
     "demo:seed": "npm run demo:seed --workspace=backend"
   },
   "devDependencies": {
+    "concurrently": "^10.0.5",
     "typescript": "^5.3.3"
   }
 }

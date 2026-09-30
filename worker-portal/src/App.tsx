@@ -73,6 +73,70 @@ export default function App() {
 
   const API_BASE_URL = getWorkerApiBaseUrl();
 
+  // Centralized session failure handler for 401 Unauthorized
+  const handleSessionExpired = (message?: string) => {
+    WorkerAuthStorageService.clearToken();
+    setToken(null);
+    setBookings([]);
+    setSelectedBooking(null);
+    setLastCompletedBooking(null);
+    setLastTxnResult(null);
+    setAuthState('AUTHENTICATION_REQUIRED');
+    setErrorMsg(message || 'Your session has expired. Please sign in again.');
+  };
+
+  /**
+   * Centralized helper for making authenticated API requests.
+   * Handles 401 safely before attempting normal response parsing.
+   * - 401: Clears token from storage & React state, resets transient states, transitions to AUTHENTICATION_REQUIRED.
+   * - 403, 500, Network Errors: Keeps session authenticated, preserves token.
+   */
+  const authenticatedFetch = async (
+    url: string,
+    options: RequestInit = {}
+  ): Promise<{ ok: boolean; status: number; data?: any; errorMsg?: string }> => {
+    if (!token) {
+      handleSessionExpired('Authentication required.');
+      return { ok: false, status: 401, errorMsg: 'Authentication required.' };
+    }
+
+    const headers: Record<string, string> = {
+      ...(options.headers as Record<string, string>),
+      Authorization: `Bearer ${token}`,
+    };
+
+    try {
+      const res = await fetch(url, { ...options, headers });
+
+      // Handle 401 Unauthorized safely BEFORE attempting normal body parsing
+      if (res.status === 401) {
+        handleSessionExpired('Your session has expired. Please sign in again.');
+        return { ok: false, status: 401, errorMsg: 'Your session has expired. Please sign in again.' };
+      }
+
+      // Parse JSON response safely
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch {
+        // Non-JSON response fallback
+      }
+
+      if (!res.ok) {
+        // Non-2xx status (e.g., 403 Forbidden, 500 Internal Error):
+        // Session remains authenticated, token is NOT cleared.
+        const msg = data?.error?.message || `Server returned error status ${res.status}`;
+        return { ok: false, status: res.status, data, errorMsg: msg };
+      }
+
+      return { ok: true, status: res.status, data };
+    } catch {
+      // Network error / Connection failure:
+      // Session remains authenticated, token is NOT cleared.
+      return { ok: false, status: 0, errorMsg: 'Network connection error. Please check server connectivity.' };
+    }
+  };
+
   // Startup Session Restoration
   useEffect(() => {
     try {
@@ -90,36 +154,28 @@ export default function App() {
 
   // Fetch Bookings from Backend API
   const fetchBookings = async () => {
-    if (!token) return;
+    if (!token || authState !== 'AUTHENTICATED') return;
     setBookingsLoading(true);
     setBookingsError(null);
-    try {
-      let url = `${API_BASE_URL}/worker/bookings`;
-      const queryParams: string[] = [];
-      if (searchQuery.trim()) queryParams.push(`search=${encodeURIComponent(searchQuery.trim())}`);
-      if (statusFilter !== 'ALL') queryParams.push(`status=${encodeURIComponent(statusFilter)}`);
-      if (queryParams.length > 0) url += `?${queryParams.join('&')}`;
 
-      const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      if (res.status === 401) {
-        WorkerAuthStorageService.clearToken();
-        setToken(null);
-        setAuthState('AUTHENTICATION_REQUIRED');
-        setErrorMsg('Your session has expired. Please sign in again.');
-        return;
-      }
-      if (res.ok && data.success) {
-        setBookings(data.data || []);
-      } else {
-        setBookingsError(data.error?.message || 'Failed to fetch bookings.');
-      }
-    } catch {
-      setBookingsError('Network connection error loading bookings.');
-    } finally {
-      setBookingsLoading(false);
+    let url = `${API_BASE_URL}/worker/bookings`;
+    const queryParams: string[] = [];
+    if (searchQuery.trim()) queryParams.push(`search=${encodeURIComponent(searchQuery.trim())}`);
+    if (statusFilter !== 'ALL') queryParams.push(`status=${encodeURIComponent(statusFilter)}`);
+    if (queryParams.length > 0) url += `?${queryParams.join('&')}`;
+
+    const { ok, status, data, errorMsg: fetchErr } = await authenticatedFetch(url);
+
+    setBookingsLoading(false);
+
+    if (status === 401) {
+      return;
+    }
+
+    if (ok && data?.success) {
+      setBookings(data.data || []);
+    } else {
+      setBookingsError(fetchErr || 'Failed to fetch bookings.');
     }
   };
 
@@ -204,35 +260,28 @@ export default function App() {
     setCompletionError(null);
     setLastCompletedBooking(null);
 
-    try {
-      const res = await fetch(`${API_BASE_URL}/worker/bookings/${bookingId}/complete`, {
+    const { ok, status, data, errorMsg: completeErr } = await authenticatedFetch(
+      `${API_BASE_URL}/worker/bookings/${bookingId}/complete`,
+      {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      const data = await res.json();
-      if (res.status === 401) {
-        WorkerAuthStorageService.clearToken();
-        setToken(null);
-        setAuthState('AUTHENTICATION_REQUIRED');
-        setErrorMsg('Your session has expired. Please sign in again.');
-        return;
+        headers: { 'Content-Type': 'application/json' },
       }
-      if (res.ok && data.success) {
-        setLastCompletedBooking(data.data);
-        if (selectedBooking && selectedBooking.id === bookingId) {
-          setSelectedBooking(data.data);
-        }
-        fetchBookings();
-      } else {
-        setCompletionError(data.error?.message || 'Failed to complete booking pickup.');
+    );
+
+    setCompletionLoading(false);
+
+    if (status === 401) {
+      return;
+    }
+
+    if (ok && data?.success) {
+      setLastCompletedBooking(data.data);
+      if (selectedBooking && selectedBooking.id === bookingId) {
+        setSelectedBooking(data.data);
       }
-    } catch {
-      setCompletionError('Error connecting to backend for booking completion.');
-    } finally {
-      setCompletionLoading(false);
+      fetchBookings();
+    } else {
+      setCompletionError(completeErr || 'Failed to complete booking pickup.');
     }
   };
 
@@ -258,37 +307,31 @@ export default function App() {
     setCheckoutLoading(true);
     setCheckoutError(null);
     setLastTxnResult(null);
-    try {
-      const res = await fetch(`${API_BASE_URL}/worker/transactions/collect-cash`, {
+
+    const { ok, status, data, errorMsg: checkoutErr } = await authenticatedFetch(
+      `${API_BASE_URL}/worker/transactions/collect-cash`,
+      {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           customerId: checkoutCustomerInput.trim(),
           items: [{ fishId: selectedFishId, quantityKg: quantity }],
           useSubscriptionCredit: true,
         }),
-      });
-      const data = await res.json();
-      if (res.status === 401) {
-        WorkerAuthStorageService.clearToken();
-        setToken(null);
-        setAuthState('AUTHENTICATION_REQUIRED');
-        setErrorMsg('Your session has expired. Please sign in again.');
-        return;
       }
-      if (res.ok && data.success) {
-        setLastTxnResult(data.data);
-        setCheckoutCustomerInput('');
-      } else {
-        setCheckoutError(data.error?.message || 'Store checkout failed.');
-      }
-    } catch {
-      setCheckoutError('Failed to complete cash checkout due to network error.');
-    } finally {
-      setCheckoutLoading(false);
+    );
+
+    setCheckoutLoading(false);
+
+    if (status === 401) {
+      return;
+    }
+
+    if (ok && data?.success) {
+      setLastTxnResult(data.data);
+      setCheckoutCustomerInput('');
+    } else {
+      setCheckoutError(checkoutErr || 'Store checkout failed.');
     }
   };
 

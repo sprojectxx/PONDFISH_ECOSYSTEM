@@ -3,7 +3,7 @@ import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
-async function seedDemo() {
+export async function seedDemo() {
   console.log('🐟 Starting Safe Idempotent PondFish Demo/Integration Seed...');
 
   // 1. Settings (Store & Truck configuration)
@@ -35,11 +35,22 @@ async function seedDemo() {
   });
   console.log('⚙️ Settings verified:', storeSetting.key, truckSetting.key);
 
-  // 2. Admin User (Preserve existing or seed default admin)
+  // 2. Admin & Worker Credentials
+  const isProduction = process.env.NODE_ENV === 'production';
+  const adminSecret = process.env.ADMIN_INITIAL_PASSWORD;
+  const workerSecret = process.env.WORKER_INITIAL_PASSWORD;
+
+  if (isProduction && (!adminSecret || !workerSecret)) {
+    throw new Error('CRITICAL SECURITY CONFIGURATION ERROR: ADMIN_INITIAL_PASSWORD and WORKER_INITIAL_PASSWORD must be provided for production seeding.');
+  }
+
+  const rawAdminPassword = adminSecret || 'Admin@123456';
+  const rawWorkerPassword = workerSecret || 'Worker@123456';
+
   const existingAdmin = await prisma.admin.findUnique({ where: { email: 'admin@pondfish.com' } });
   let admin = existingAdmin;
   if (!admin) {
-    const adminPassword = await bcrypt.hash('Admin@123456', 12);
+    const adminPassword = await bcrypt.hash(rawAdminPassword, 12);
     admin = await prisma.admin.create({
       data: {
         email: 'admin@pondfish.com',
@@ -53,13 +64,13 @@ async function seedDemo() {
     console.log('👤 Existing Admin detected and preserved:', admin.email);
   }
 
-  // 3. Worker User (Preserve existing worker STEVANSON PAMISHETTY / 9347615308 or seed default 9876543210)
+  // 3. Worker User
   const existingWorker = await prisma.worker.findFirst({
     where: { OR: [{ mobileNumber: '9347615308' }, { mobileNumber: '9876543210' }] },
   });
   let worker = existingWorker;
   if (!worker) {
-    const workerPassword = await bcrypt.hash('Worker@123456', 12);
+    const workerPassword = await bcrypt.hash(rawWorkerPassword, 12);
     worker = await prisma.worker.create({
       data: {
         mobileNumber: '9347615308',
@@ -240,11 +251,13 @@ async function seedDemo() {
   console.log('✨ PondFish Demo/Integration Seed Completed Successfully!');
 }
 
-seedDemo()
-  .catch((e) => {
-    console.error('❌ Demo Seed Error:', e);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+if (require.main === module) {
+  seedDemo()
+    .catch((e) => {
+      console.error('❌ Demo Seed Error:', e);
+      process.exit(1);
+    })
+    .finally(async () => {
+      await prisma.$disconnect();
+    });
+}

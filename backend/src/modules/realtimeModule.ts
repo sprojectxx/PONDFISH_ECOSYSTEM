@@ -62,7 +62,11 @@ export class RealtimeModule {
     });
 
     logger.info(`📢 Socket.io Emitting BOOKING_COMPLETED for booking ${booking.bookingCode}`);
-    io.emit('BOOKING_COMPLETED', payload);
+    if (booking.customerId) {
+      io.to(`customer:${booking.customerId}`).to('role:WORKER').to('role:ADMIN').emit('BOOKING_COMPLETED', payload);
+    } else {
+      io.to('role:WORKER').to('role:ADMIN').emit('BOOKING_COMPLETED', payload);
+    }
   }
 
   static async emitGPSLocationUpdate(journeyId: string, latitude: number, longitude: number) {

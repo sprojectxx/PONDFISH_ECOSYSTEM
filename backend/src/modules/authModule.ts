@@ -1,11 +1,18 @@
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import { prisma } from '../prismaClient';
 import { DomainError } from '../middleware/errorHandler';
 import { getJwtSecret } from '../utils/jwtConfig';
 
-// In-memory OTP storage for dev/testing (Mobile -> { otp, expiresAt })
-const otpStore = new Map<string, { otp: string; expiresAt: Date }>();
+interface OtpRecord {
+  otp: string;
+  expiresAt: Date;
+  attempts: number;
+}
+
+// In-memory OTP storage for dev/testing (Mobile -> { otp, expiresAt, attempts })
+const otpStore = new Map<string, OtpRecord>();
 
 export class AuthModule {
   static async sendOTP(mobileNumber: string) {
@@ -13,15 +20,44 @@ export class AuthModule {
       throw new DomainError('ERR_INVALID_MOBILE', 'Invalid mobile number format.', 400);
     }
 
-    const otp = '123456'; // Default 6-digit OTP for dev/testing
-    const expiresAt = new Date(Date.now() + 3 * 60 * 1000); // 3 minutes expiry
-    otpStore.set(mobileNumber, { otp, expiresAt });
+    const isProduction = process.env.NODE_ENV === 'production';
+    const smsAdapter = process.env.SMS_ADAPTER;
 
-    return { mobileNumber, message: 'OTP sent successfully (Dev default: 123456)', expiresAt };
+    if (isProduction && (!smsAdapter || smsAdapter.trim() === '' || smsAdapter.toLowerCase() === 'mock')) {
+      throw new DomainError(
+        'ERR_SMS_CONFIG',
+        'CRITICAL: SMS service adapter is unconfigured or set to mock in production environment.',
+        500
+      );
+    }
+
+    let otp: string;
+    if (isProduction || (smsAdapter && smsAdapter !== 'mock')) {
+      otp = crypto.randomInt(100000, 1000000).toString();
+    } else {
+      otp = '123456';
+    }
+
+    const expiresAt = new Date(Date.now() + 3 * 60 * 1000); // 3 minutes expiry
+    otpStore.set(mobileNumber, { otp, expiresAt, attempts: 0 });
+
+    const message = isProduction || (smsAdapter && smsAdapter !== 'mock')
+      ? 'OTP sent successfully'
+      : 'OTP sent successfully (Dev default: 123456)';
+
+    return { mobileNumber, message, expiresAt };
   }
 
   static async verifyOTP(mobileNumber: string, otp: string) {
+    const isProduction = process.env.NODE_ENV === 'production';
+
+    // In production, fixed dev fallback 123456 must NEVER be accepted
+    if (isProduction && otp === '123456') {
+      throw new DomainError('ERR_AUTH_MOCK_OTP_DISABLED', 'Development mock OTP is disabled in production environment.', 400);
+    }
+
     const record = otpStore.get(mobileNumber);
+
     if (!record) {
       throw new DomainError('ERR_AUTH_OTP_EXPIRED', 'OTP expired or not requested.', 400);
     }
@@ -31,10 +67,21 @@ export class AuthModule {
       throw new DomainError('ERR_AUTH_OTP_EXPIRED', 'OTP has expired.', 400);
     }
 
+    if (record.attempts >= 3) {
+      otpStore.delete(mobileNumber);
+      throw new DomainError('ERR_AUTH_OTP_MAX_ATTEMPTS', 'Maximum verification attempts exceeded. Please request a new OTP.', 400);
+    }
+
     if (record.otp !== otp) {
+      record.attempts += 1;
+      if (record.attempts >= 3) {
+        otpStore.delete(mobileNumber);
+        throw new DomainError('ERR_AUTH_OTP_MAX_ATTEMPTS', 'Maximum verification attempts exceeded. Please request a new OTP.', 400);
+      }
       throw new DomainError('ERR_INVALID_OTP', 'Incorrect OTP entered.', 400);
     }
 
+    // Single-use: delete immediately upon successful verification
     otpStore.delete(mobileNumber);
 
     let customer = await prisma.customer.findUnique({ where: { mobileNumber } });

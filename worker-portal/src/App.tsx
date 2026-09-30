@@ -104,6 +104,13 @@ export default function App() {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
+      if (res.status === 401) {
+        WorkerAuthStorageService.clearToken();
+        setToken(null);
+        setAuthState('AUTHENTICATION_REQUIRED');
+        setErrorMsg('Your session has expired. Please sign in again.');
+        return;
+      }
       if (res.ok && data.success) {
         setBookings(data.data || []);
       } else {
@@ -206,6 +213,13 @@ export default function App() {
         },
       });
       const data = await res.json();
+      if (res.status === 401) {
+        WorkerAuthStorageService.clearToken();
+        setToken(null);
+        setAuthState('AUTHENTICATION_REQUIRED');
+        setErrorMsg('Your session has expired. Please sign in again.');
+        return;
+      }
       if (res.ok && data.success) {
         setLastCompletedBooking(data.data);
         if (selectedBooking && selectedBooking.id === bookingId) {
@@ -258,6 +272,13 @@ export default function App() {
         }),
       });
       const data = await res.json();
+      if (res.status === 401) {
+        WorkerAuthStorageService.clearToken();
+        setToken(null);
+        setAuthState('AUTHENTICATION_REQUIRED');
+        setErrorMsg('Your session has expired. Please sign in again.');
+        return;
+      }
       if (res.ok && data.success) {
         setLastTxnResult(data.data);
         setCheckoutCustomerInput('');

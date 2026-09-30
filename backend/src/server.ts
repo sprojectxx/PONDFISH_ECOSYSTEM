@@ -7,31 +7,62 @@ import { prisma } from './prismaClient';
 
 dotenv.config();
 
+import jwt from 'jsonwebtoken';
+import { getAllowedOrigins } from './utils/corsConfig';
+import { getJwtSecret } from './utils/jwtConfig';
+import { AuthenticatedUser } from './middleware/authMiddleware';
+
 const PORT = process.env.PORT || 5000;
 const server = http.createServer(app);
-
-export function getAllowedOrigins(): string | string[] {
-  const allowed = process.env.ALLOWED_ORIGINS;
-  if (process.env.NODE_ENV === 'production') {
-    if (allowed && allowed.trim().length > 0) {
-      return allowed.split(',').map((item) => item.trim()).filter(Boolean);
-    }
-    // Return explicit empty array or fallback in production to avoid '*' wildcard
-    return [];
-  }
-  return '*';
-}
 
 // Socket.io Realtime WebSocket Server
 export const io = new SocketIOServer(server, {
   cors: {
     origin: getAllowedOrigins(),
     methods: ['GET', 'POST'],
+    credentials: true,
   },
 });
 
+// Socket.IO Handshake Authentication Middleware & Room Joining
+io.use((socket, next) => {
+  const authHeader = socket.handshake.headers?.authorization;
+  const token =
+    socket.handshake.auth?.token ||
+    (authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : null) ||
+    socket.handshake.query?.token;
+
+  if (!token || typeof token !== 'string') {
+    // Unauthenticated public/TV display connection
+    socket.data.user = { role: 'PUBLIC' };
+    socket.join('public');
+    socket.join('tv');
+    return next();
+  }
+
+  try {
+    const decoded = jwt.verify(token, getJwtSecret()) as AuthenticatedUser;
+    socket.data.user = decoded;
+    if (decoded.role) socket.join(`role:${decoded.role}`);
+    if (decoded.id) {
+      socket.join(`customer:${decoded.id}`);
+      socket.join(`user:${decoded.id}`);
+    }
+    // Also allow TV display access
+    socket.join('tv');
+    next();
+  } catch {
+    // Fallback to public/TV display room on invalid token
+    socket.data.user = { role: 'PUBLIC' };
+    socket.join('public');
+    socket.join('tv');
+    next();
+  }
+});
+
 io.on('connection', (socket) => {
-  logger.info(`⚡ Socket Connected: ${socket.id}`);
+  const user = socket.data.user;
+  logger.info(`⚡ Socket Connected: ${socket.id} (Role: ${user?.role || 'PUBLIC'})`);
 
   socket.on('disconnect', () => {
     logger.info(`⚡ Socket Disconnected: ${socket.id}`);

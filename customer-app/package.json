@@ -11,13 +11,21 @@
     "test": "jest"
   },
   "dependencies": {
-    "@react-native-async-storage/async-storage": "^3.1.1",
+    "@babel/runtime": "^7.20.0",
+    "@react-native-async-storage/async-storage": "^1.23.1",
+    "fast-text-encoding": "^1.0.6",
     "qrcode": "^1.5.3",
     "react": "^18.2.0",
     "react-native": "^0.73.4",
     "react-native-razorpay": "^2.3.0"
   },
   "devDependencies": {
+    "@babel/core": "^7.20.0",
+    "@react-native-community/cli": "12.3.6",
+    "@react-native-community/cli-platform-android": "12.3.6",
+    "@react-native/babel-preset": "0.73.21",
+    "@react-native/gradle-plugin": "0.73.4",
+    "@react-native/metro-config": "0.73.5",
     "@types/jest": "^29.5.12",
     "@types/qrcode": "^1.5.5",
     "@types/react": "^18.2.55",

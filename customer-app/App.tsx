@@ -342,10 +342,15 @@ export default function App() {
         }),
       });
       const data = await res.json();
-      if (res.ok && data.success) {
+      if (res.ok && data.success && data.data) {
         setProfile(data.data);
+        setEditName(data.data.name || '');
+        setEditAge(data.data.age ? String(data.data.age) : '');
+        setEditArea(data.data.area || '');
         setShowProfileModal(false);
-        Alert.alert('Profile Saved', 'Your customer profile has been updated.');
+        Alert.alert('Profile Saved', 'Your customer profile has been updated.', [
+          { text: 'OK', onPress: () => setProfileLoading(false) },
+        ]);
       } else {
         Alert.alert('Profile Error', data.error?.message || 'Failed to update profile.');
       }

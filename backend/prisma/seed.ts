@@ -3,7 +3,7 @@ import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
-async function main() {
+export async function seedDatabase() {
   console.log('🌱 Starting PondFish Database Seeding...');
 
   // 1. Settings (Store & Truck configuration)
@@ -34,8 +34,19 @@ async function main() {
     },
   });
 
-  // 2. Admin User
-  const adminPassword = await bcrypt.hash('Admin@123456', 12);
+  // 2. Admin & Worker Credentials
+  const isProduction = process.env.NODE_ENV === 'production';
+  const adminSecret = process.env.ADMIN_INITIAL_PASSWORD;
+  const workerSecret = process.env.WORKER_INITIAL_PASSWORD;
+
+  if (isProduction && (!adminSecret || !workerSecret)) {
+    throw new Error('CRITICAL SECURITY CONFIGURATION ERROR: ADMIN_INITIAL_PASSWORD and WORKER_INITIAL_PASSWORD must be provided for production seeding.');
+  }
+
+  const rawAdminPassword = adminSecret || 'Admin@123456';
+  const rawWorkerPassword = workerSecret || 'Worker@123456';
+
+  const adminPassword = await bcrypt.hash(rawAdminPassword, 12);
   const admin = await prisma.admin.upsert({
     where: { email: 'admin@pondfish.com' },
     update: {},
@@ -49,7 +60,7 @@ async function main() {
   console.log('👤 Admin user seeded:', admin.email);
 
   // 3. Worker User
-  const workerPassword = await bcrypt.hash('Worker@123456', 12);
+  const workerPassword = await bcrypt.hash(rawWorkerPassword, 12);
   const worker = await prisma.worker.upsert({
     where: { mobileNumber: '9876543210' },
     update: {},
@@ -194,11 +205,13 @@ async function main() {
   console.log('✅ PondFish Seeding Completed Successfully!');
 }
 
-main()
-  .catch((e) => {
-    console.error('❌ Seeding Error:', e);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+if (require.main === module) {
+  seedDatabase()
+    .catch((e) => {
+      console.error('❌ Seeding Error:', e);
+      process.exit(1);
+    })
+    .finally(async () => {
+      await prisma.$disconnect();
+    });
+}

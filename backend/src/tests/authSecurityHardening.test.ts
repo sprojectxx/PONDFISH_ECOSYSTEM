@@ -1,7 +1,7 @@
 import request from 'supertest';
 import app from '../app';
 import { getJwtSecret } from '../utils/jwtConfig';
-import { getAllowedOrigins } from '../server';
+import { getAllowedOrigins } from '../utils/corsConfig';
 
 describe('Authentication & Security Hardening Unit & Integration Tests', () => {
   const originalEnv = process.env;

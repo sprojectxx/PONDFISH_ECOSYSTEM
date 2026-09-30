@@ -119,7 +119,7 @@ router.post('/bills/scan', async (req, res, next) => {
 router.post('/bills/verify-extraction', async (req, res, next) => {
   try {
     const { billId, manualBillId } = req.body;
-    const updated = await BillProcessingModule.verifyManualBillId(billId, manualBillId);
+    const updated = await BillProcessingModule.verifyManualBillId(billId, manualBillId, req.user!.id);
     return sendSuccess(res, updated, 'Manual Bill ID verified successfully');
   } catch (err) {
     next(err);

@@ -327,11 +327,23 @@ export class PaymentModule {
       }
 
       // 3. Conservative event handling
-      if (['payment.captured', 'payment.authorized', 'order.paid'].includes(eventType)) {
-        const paymentEntity = payload?.payload?.payment?.entity || payload?.payload?.order?.entity;
-        const razorpayOrderId = paymentEntity?.order_id || paymentEntity?.id;
-        const razorpayPaymentId = paymentEntity?.id;
+      const paymentObj = payload?.payload?.payment?.entity;
+      const orderObj = payload?.payload?.order?.entity;
+      const razorpayOrderId = paymentObj?.order_id || orderObj?.id;
+      const razorpayPaymentId = paymentObj?.id;
 
+      const isFinalState = ['payment.captured', 'order.paid'].includes(eventType) ||
+        (eventType === 'payment.authorized' && process.env.RAZORPAY_CAPTURE_MODEL === 'AUTO_AUTHORIZED_FINAL');
+
+      if (eventType === 'payment.authorized' && !isFinalState) {
+        return {
+          status: 'IGNORED',
+          eventType,
+          message: 'payment.authorized is not a final payment state; awaiting payment.captured or order.paid.',
+        };
+      }
+
+      if (isFinalState) {
         if (!razorpayOrderId) {
           return { status: 'IGNORED', eventType, message: 'Missing order_id in webhook payload.' };
         }
@@ -342,12 +354,40 @@ export class PaymentModule {
           return { status: 'IGNORED', eventType, message: `No booking found bound to Razorpay order ${razorpayOrderId}.` };
         }
 
-        // Amount parsing (Razorpay sends amount in paise: 100000 = 1000.0)
-        let rawAmount = paymentEntity?.amount;
-        let amount = typeof rawAmount === 'number' ? rawAmount : booking.razorpayPaid;
-        if (amount > 100 && amount === Math.round(booking.razorpayPaid * 100)) {
-          amount = booking.razorpayPaid;
+        // Validate payload booking_id if present
+        const payloadBookingId = paymentObj?.notes?.booking_id || orderObj?.notes?.booking_id;
+        if (payloadBookingId && payloadBookingId !== booking.id) {
+          throw new DomainError('ERR_PAYMENT_BOOKING_MISMATCH', 'Webhook payload booking_id does not match booking bound to razorpayOrderId.', 400);
         }
+
+        // Amount parsing (Razorpay sends amount in paise: 100000 = 1000.0)
+        let rawAmount: number | undefined;
+        if (typeof paymentObj?.amount === 'number') {
+          rawAmount = paymentObj.amount;
+        } else if (typeof orderObj?.amount === 'number') {
+          rawAmount = orderObj.amount;
+        }
+
+        let webhookAmountInRupees: number | undefined;
+        if (typeof rawAmount === 'number') {
+          if (Math.abs(rawAmount / 100 - booking.razorpayPaid) < 0.01) {
+            webhookAmountInRupees = rawAmount / 100;
+          } else if (Math.abs(rawAmount - booking.razorpayPaid) < 0.01) {
+            webhookAmountInRupees = rawAmount;
+          } else {
+            webhookAmountInRupees = rawAmount > 100 ? rawAmount / 100 : rawAmount;
+          }
+        }
+
+        if (booking.razorpayPaid > 0 && (webhookAmountInRupees === undefined || Math.abs(webhookAmountInRupees - booking.razorpayPaid) > 0.01)) {
+          throw new DomainError(
+            'ERR_PAYMENT_AMOUNT_MISMATCH',
+            `Webhook payment amount (${webhookAmountInRupees ?? 'undefined'}) does not match expected booking amount (${booking.razorpayPaid}).`,
+            400
+          );
+        }
+
+        const amountToRecord = webhookAmountInRupees ?? booking.razorpayPaid;
 
         // Confirm booking PENDING -> CONFIRMED inside the transaction
         if (booking.status === 'PENDING') {
@@ -367,7 +407,7 @@ export class PaymentModule {
                 bookingId: booking.id,
                 razorpayOrderId,
                 razorpayPaymentId: razorpayPaymentId || `pay_wh_${Date.now()}`,
-                amount,
+                amount: amountToRecord,
                 method: 'RAZORPAY',
                 status: 'SUCCESS',
               },

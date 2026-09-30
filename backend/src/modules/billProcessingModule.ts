@@ -91,10 +91,29 @@ export class BillProcessingModule {
     return { bill, extractedData };
   }
 
-  static async verifyManualBillId(billId: string, manualBillId: string) {
-    const bill = await prisma.bill.findUnique({ where: { id: billId } });
+  static async verifyManualBillId(billId: string, manualBillId: string, customerId: string) {
+    if (!billId || !manualBillId || !customerId) {
+      throw new DomainError('ERR_INVALID_INPUT', 'Bill ID, manual Bill ID, and customer authentication are required.', 400);
+    }
+
+    const bill = await prisma.bill.findFirst({
+      where: {
+        id: billId,
+        customerId,
+      },
+    });
+
     if (!bill) {
+      // Check if bill exists under a different customer to return explicit BOLA 403 error
+      const existingOther = await prisma.bill.findUnique({ where: { id: billId } });
+      if (existingOther) {
+        throw new DomainError('ERR_FORBIDDEN', 'Access denied. You do not own this bill record.', 403);
+      }
       throw new DomainError('ERR_BILL_NOT_FOUND', 'Scanned bill record not found.', 404);
+    }
+
+    if (bill.status === BillStatus.PROCESSED || bill.status === BillStatus.REJECTED) {
+      throw new DomainError('ERR_BILL_INVALID_STATE', `Bill cannot be manually verified from state: ${bill.status}.`, 400);
     }
 
     // Double-claim check on manual Bill ID

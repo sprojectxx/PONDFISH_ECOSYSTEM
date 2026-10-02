@@ -19,7 +19,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
       <View style={styles.container}>
         {/* Search Lens Icon */}
         <TouchableOpacity onPress={onSearchPress} style={styles.iconBox} activeOpacity={0.7}>
-          <Text style={styles.searchIconText}>🔍</Text>
+          <Text style={styles.searchIconText}>⌕</Text>
         </TouchableOpacity>
 
         {/* Input */}
@@ -30,11 +30,6 @@ export const SearchBar: React.FC<SearchBarProps> = ({
           value={value}
           onChangeText={onChangeText}
         />
-
-        {/* Mic Icon */}
-        <TouchableOpacity onPress={onMicPress} style={styles.iconBox} activeOpacity={0.7}>
-          <Text style={styles.micIconText}>🎙️</Text>
-        </TouchableOpacity>
       </View>
     </View>
   );
@@ -43,7 +38,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
 const styles = StyleSheet.create({
   wrapper: {
     paddingHorizontal: 16,
-    marginTop: -16, // Overlay effect on dark header
+    marginTop: -14,
     marginBottom: 12,
   },
   container: {
@@ -52,7 +47,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 24,
     borderWidth: 1.5,
-    borderColor: '#38BDF8', // Cyan-blue outline matching Figma
+    borderColor: '#38BDF8',
     height: 46,
     paddingHorizontal: 12,
     shadowColor: '#0F172A',
@@ -68,12 +63,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   searchIconText: {
-    fontSize: 16,
+    fontSize: 20,
     color: '#64748B',
-  },
-  micIconText: {
-    fontSize: 16,
-    color: '#64748B',
+    fontWeight: '900',
   },
   input: {
     flex: 1,

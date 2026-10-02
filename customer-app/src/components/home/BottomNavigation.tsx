@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { HomeIcon, GpsIcon, ScanQrIcon, TagIcon, ProfileIcon } from './HomeIcons';
 
 export type NavTabType = 'HOME' | 'CATALOG' | 'FISH_DETAIL' | 'BOOKINGS' | 'BOOKING_CONFIRM' | 'SCAN_BILL' | 'SUBSCRIPTION' | 'GPS_MAP' | 'PROFILE' | string;
 
@@ -16,6 +17,9 @@ export const BottomNavigation: React.FC<BottomNavigationProps> = ({
     if (onTabPress) onTabPress(tab);
   };
 
+  const activeColor = '#0F294A';
+  const inactiveColor = '#64748B';
+
   return (
     <View style={styles.navContainer}>
       {/* 1. Home Tab */}
@@ -24,9 +28,7 @@ export const BottomNavigation: React.FC<BottomNavigationProps> = ({
         onPress={() => handlePress('HOME')}
         activeOpacity={0.7}
       >
-        <Text style={[styles.navIconText, currentTab === 'HOME' && styles.activeNavIcon]}>
-          🏪
-        </Text>
+        <HomeIcon size={20} color={currentTab === 'HOME' ? activeColor : inactiveColor} />
         <Text style={[styles.navLabel, currentTab === 'HOME' && styles.activeNavLabel]}>
           Home
         </Text>
@@ -38,9 +40,7 @@ export const BottomNavigation: React.FC<BottomNavigationProps> = ({
         onPress={() => handlePress('GPS_MAP')}
         activeOpacity={0.7}
       >
-        <Text style={[styles.navIconText, currentTab === 'GPS_MAP' && styles.activeNavIcon]}>
-          ✈️
-        </Text>
+        <GpsIcon size={20} color={currentTab === 'GPS_MAP' ? activeColor : inactiveColor} />
         <Text style={[styles.navLabel, currentTab === 'GPS_MAP' && styles.activeNavLabel]}>
           Track
         </Text>
@@ -53,7 +53,7 @@ export const BottomNavigation: React.FC<BottomNavigationProps> = ({
         activeOpacity={0.85}
       >
         <View style={styles.scanBillInnerCircle}>
-          <Text style={styles.scanQrIconText}>🔳</Text>
+          <ScanQrIcon size={20} color="#FFFFFF" />
         </View>
         <Text style={styles.scanBillLabel}>Scan Bill</Text>
       </TouchableOpacity>
@@ -65,9 +65,7 @@ export const BottomNavigation: React.FC<BottomNavigationProps> = ({
         activeOpacity={0.7}
       >
         <View style={styles.iconWithBadge}>
-          <Text style={[styles.navIconText, currentTab === 'SUBSCRIPTION' && styles.activeNavIcon]}>
-            🏷️
-          </Text>
+          <TagIcon size={18} color={currentTab === 'SUBSCRIPTION' ? activeColor : inactiveColor} />
           <View style={styles.blueDotBadge} />
         </View>
         <Text style={[styles.navLabel, currentTab === 'SUBSCRIPTION' && styles.activeNavLabel]}>
@@ -81,9 +79,7 @@ export const BottomNavigation: React.FC<BottomNavigationProps> = ({
         onPress={() => handlePress('PROFILE')}
         activeOpacity={0.7}
       >
-        <Text style={[styles.navIconText, currentTab === 'PROFILE' && styles.activeNavIcon]}>
-          👤
-        </Text>
+        <ProfileIcon size={18} color={currentTab === 'PROFILE' ? activeColor : inactiveColor} />
         <Text style={[styles.navLabel, currentTab === 'PROFILE' && styles.activeNavLabel]}>
           Profile
         </Text>
@@ -108,7 +104,6 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     zIndex: 100,
-
     shadowColor: '#0F172A',
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.08,
@@ -121,18 +116,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 4,
   },
-  navIconText: {
-    fontSize: 20,
-    color: '#64748B',
-    marginBottom: 2,
-  },
-  activeNavIcon: {
-    color: '#0F294A',
-  },
   navLabel: {
     fontSize: 11,
     fontWeight: '600',
     color: '#64748B',
+    marginTop: 2,
   },
   activeNavLabel: {
     color: '#0F294A',
@@ -142,13 +130,13 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: -22, // Raised circular button
+    marginTop: -22,
   },
   scanBillInnerCircle: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: '#0A192F', // Prominent Dark Navy Circle matching Figma
+    backgroundColor: '#0A192F',
     borderColor: '#38BDF8',
     borderWidth: 2,
     alignItems: 'center',
@@ -158,10 +146,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 6,
     elevation: 6,
-  },
-  scanQrIconText: {
-    fontSize: 22,
-    color: '#FFFFFF',
   },
   scanBillLabel: {
     fontSize: 11,
@@ -174,8 +158,8 @@ const styles = StyleSheet.create({
   },
   blueDotBadge: {
     position: 'absolute',
-    top: 0,
-    right: -2,
+    top: -2,
+    right: -4,
     width: 6,
     height: 6,
     borderRadius: 3,

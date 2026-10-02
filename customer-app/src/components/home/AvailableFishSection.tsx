@@ -1,19 +1,22 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { FishProduct, MOCK_AVAILABLE_FISH } from '../../data/mockFishData';
+import { FishProduct } from '../../data/mockFishData';
 import { FishCategoryFilters, CategoryFilterType } from './FishCategoryFilters';
 import { ProductCard } from './ProductCard';
+import { FilterIcon } from './HomeIcons';
 
 interface AvailableFishSectionProps {
   products?: FishProduct[];
   onSortPress?: () => void;
   onAddProduct?: (product: FishProduct) => void;
+  onRefreshPress?: () => void;
 }
 
 export const AvailableFishSection: React.FC<AvailableFishSectionProps> = ({
-  products = MOCK_AVAILABLE_FISH,
+  products = [],
   onSortPress,
   onAddProduct,
+  onRefreshPress,
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<CategoryFilterType>('All');
 
@@ -34,7 +37,10 @@ export const AvailableFishSection: React.FC<AvailableFishSectionProps> = ({
         </View>
 
         <TouchableOpacity onPress={onSortPress} style={styles.sortButton} activeOpacity={0.7}>
-          <Text style={styles.sortButtonText}>Sort & Filter 🎛️</Text>
+          <View style={styles.sortContent}>
+            <Text style={styles.sortButtonText}>Filter </Text>
+            <FilterIcon size={13} color="#0284C7" />
+          </View>
         </TouchableOpacity>
       </View>
 
@@ -44,17 +50,37 @@ export const AvailableFishSection: React.FC<AvailableFishSectionProps> = ({
         onSelectCategory={setSelectedCategory}
       />
 
-      {/* 3-Column Product Grid */}
-      <View style={styles.gridContainer}>
-        {filteredProducts.map((item) => (
-          <ProductCard
-            key={item.id}
-            product={item}
-            variant="grid"
-            onAddPress={onAddProduct}
-          />
-        ))}
-      </View>
+      {/* CP-02 Section 25: Empty Catalogue State */}
+      {products.length === 0 ? (
+        <View style={styles.emptyBox}>
+          <Text style={styles.emptyTitle}>No Fresh Fish Available Today</Text>
+          <Text style={styles.emptySubtext}>Check back later or refresh the catalogue for updates.</Text>
+          {onRefreshPress && (
+            <TouchableOpacity style={styles.refreshBtn} onPress={onRefreshPress} activeOpacity={0.8}>
+              <Text style={styles.refreshBtnText}>Refresh Catalogue</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      ) : filteredProducts.length === 0 ? (
+        <View style={styles.emptyBox}>
+          <Text style={styles.emptyTitle}>No fish match this category right now</Text>
+          <TouchableOpacity onPress={() => setSelectedCategory('All')}>
+            <Text style={styles.clearFilterText}>Show All Fish</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        /* 3-Column Product Grid */
+        <View style={styles.gridContainer}>
+          {filteredProducts.map((item) => (
+            <ProductCard
+              key={item.id}
+              product={item}
+              variant="grid"
+              onAddPress={onAddProduct}
+            />
+          ))}
+        </View>
+      )}
     </View>
   );
 };
@@ -87,6 +113,10 @@ const styles = StyleSheet.create({
   sortButton: {
     paddingVertical: 4,
   },
+  sortContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   sortButtonText: {
     fontSize: 12,
     fontWeight: '700',
@@ -97,5 +127,43 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
+  },
+  emptyBox: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 20,
+    marginHorizontal: 16,
+    alignItems: 'center',
+    borderColor: '#E2E8F0',
+    borderWidth: 1,
+  },
+  emptyTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#334155',
+  },
+  emptySubtext: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  refreshBtn: {
+    backgroundColor: '#2463A8',
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    marginTop: 12,
+  },
+  refreshBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  clearFilterText: {
+    color: '#0284C7',
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 8,
   },
 });

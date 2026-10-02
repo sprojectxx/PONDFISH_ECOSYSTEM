@@ -1,51 +1,53 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { WalletIcon, ProfileIcon } from './HomeIcons';
 
 interface HomeHeaderProps {
   userName?: string;
   creditBalance?: number;
+  hasSubscription?: boolean;
   onProfilePress?: () => void;
   onCreditPress?: () => void;
 }
 
 export const HomeHeader: React.FC<HomeHeaderProps> = ({
-  userName = 'Stevan',
-  creditBalance = 3420,
+  userName,
+  creditBalance = 0,
+  hasSubscription = false,
   onProfilePress,
   onCreditPress,
 }) => {
+  const displayName = userName?.trim() ? userName : 'Customer';
   const formattedBalance = creditBalance.toLocaleString('en-IN');
 
   return (
     <View style={styles.container}>
-      {/* Top Row: User Greeting & Badges */}
+      {/* Top Row: User Greeting & Actions */}
       <View style={styles.topRow}>
         <View style={styles.userTitleContainer}>
-          <Text style={styles.greetingText}>Good morning, {userName}</Text>
-          {/* Verified Checkmark Badge */}
-          <View style={styles.verifiedBadge}>
-            <Text style={styles.verifiedCheck}>✓</Text>
-          </View>
+          <Text style={styles.greetingText}>Good morning, {displayName}</Text>
         </View>
 
         <View style={styles.rightActions}>
-          {/* Wallet / Credit Balance Pill */}
-          <TouchableOpacity style={styles.creditPill} onPress={onCreditPress} activeOpacity={0.8}>
-            <View style={styles.creditIconBox}>
-              <Text style={styles.creditIconText}>💳</Text>
-            </View>
-            <Text style={styles.creditAmountText}>₹{formattedBalance}</Text>
-          </TouchableOpacity>
+          {/* Wallet / Credit Balance Pill (shows when customer has subscription or credit) */}
+          {hasSubscription && (
+            <TouchableOpacity style={styles.creditPill} onPress={onCreditPress} activeOpacity={0.8}>
+              <View style={styles.creditIconBox}>
+                <WalletIcon size={14} color="#10B981" />
+              </View>
+              <Text style={styles.creditAmountText}>₹{formattedBalance}</Text>
+            </TouchableOpacity>
+          )}
 
-          {/* Action / Key Circle Button */}
+          {/* Action / Profile Circle Button */}
           <TouchableOpacity style={styles.circleActionButton} onPress={onProfilePress} activeOpacity={0.8}>
-            <Text style={styles.keyIconText}>🔑</Text>
+            <ProfileIcon size={16} color="#FFFFFF" />
           </TouchableOpacity>
         </View>
       </View>
 
       {/* Subtitle */}
-      <Text style={styles.subtitleText}>Your fresh morning quota is ready to claim</Text>
+      <Text style={styles.subtitleText}>Your fresh morning catch is ready to browse</Text>
     </View>
   );
 };
@@ -55,7 +57,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#0B192C',
     paddingHorizontal: 16,
     paddingTop: 16,
-    paddingBottom: 28,
+    paddingBottom: 20,
   },
   topRow: {
     flexDirection: 'row',
@@ -74,21 +76,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: -0.2,
   },
-  verifiedBadge: {
-    backgroundColor: '#3B82F6',
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: 6,
-  },
-  verifiedCheck: {
-    color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: '900',
-    marginTop: -1,
-  },
   rightActions: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -100,19 +87,12 @@ const styles = StyleSheet.create({
     borderColor: '#10B981',
     borderWidth: 1,
     borderRadius: 20,
-    paddingHorizontal: 8,
+    paddingHorizontal: 10,
     paddingVertical: 4,
     marginRight: 8,
   },
   creditIconBox: {
-    width: 18,
-    height: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 4,
-  },
-  creditIconText: {
-    fontSize: 11,
+    marginRight: 6,
   },
   creditAmountText: {
     color: '#FFFFFF',
@@ -123,12 +103,9 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    backgroundColor: 'rgba(255, 255, 255, 0.14)',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  keyIconText: {
-    fontSize: 14,
   },
   subtitleText: {
     color: '#94A3B8',

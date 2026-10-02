@@ -1,7 +1,8 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
-import { FishProduct, MOCK_OFFER_FISH } from '../../data/mockFishData';
+import { FishProduct } from '../../data/mockFishData';
 import { ProductCard } from './ProductCard';
+import { FlameIcon } from './HomeIcons';
 
 interface OffersSectionProps {
   products?: FishProduct[];
@@ -9,26 +10,24 @@ interface OffersSectionProps {
 }
 
 export const OffersSection: React.FC<OffersSectionProps> = ({
-  products = MOCK_OFFER_FISH,
+  products = [],
   onAddProduct,
 }) => {
+  if (!products || products.length === 0) return null;
+
   return (
     <View style={styles.container}>
       {/* Header Row */}
       <View style={styles.headerRow}>
         <View style={styles.titleLeft}>
           <View style={styles.flameIconCircle}>
-            <Text style={styles.flameEmoji}>🔥</Text>
+            <FlameIcon size={14} color="#FFFFFF" />
           </View>
           <Text style={styles.sectionTitle}>Offers on Selected Fishes</Text>
         </View>
 
         <View style={styles.flashSaleBadge}>
-          <Text style={styles.flashSaleText}>FLASH SALE</Text>
-        </View>
-
-        <View style={styles.timerPill}>
-          <Text style={styles.timerText}>⏰ Ends in 03h:24m</Text>
+          <Text style={styles.flashSaleText}>SPECIAL OFFERS</Text>
         </View>
       </View>
 
@@ -56,7 +55,7 @@ export const OffersSection: React.FC<OffersSectionProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: '#FEFCE8', // Warm Soft Cream Yellow matching Figma Screenshot 1
+    backgroundColor: '#FEFCE8',
     borderRadius: 16,
     padding: 12,
     marginHorizontal: 16,
@@ -75,16 +74,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   flameIconCircle: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     backgroundColor: '#EF4444',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 6,
-  },
-  flameEmoji: {
-    fontSize: 13,
   },
   sectionTitle: {
     fontSize: 15,
@@ -97,25 +93,11 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     paddingHorizontal: 6,
     paddingVertical: 2,
-    marginRight: 4,
   },
   flashSaleText: {
     color: '#FFFFFF',
     fontSize: 9,
     fontWeight: '900',
-  },
-  timerPill: {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#F97316',
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-  },
-  timerText: {
-    color: '#EA580C',
-    fontSize: 10,
-    fontWeight: '700',
   },
   subtitleText: {
     fontSize: 11,

@@ -1,37 +1,70 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { MedalIcon } from './HomeIcons';
+
+export interface SubscriptionInfoData {
+  id?: string;
+  planName?: string;
+  status?: string;
+  creditBalance?: number;
+  weeklyQtyLimitKg?: number;
+  remainingWeeklyQtyKg?: number;
+  resetDays?: number;
+}
 
 interface GoldPlanCardProps {
-  remainingKgToday?: number;
-  resetDays?: number;
-  claimedThisWeekKg?: number;
+  subscription?: SubscriptionInfoData | null;
+  onExplorePlansPress?: () => void;
   onRechargePress?: () => void;
 }
 
 export const GoldPlanCard: React.FC<GoldPlanCardProps> = ({
-  remainingKgToday = 0.6,
-  resetDays = 2,
-  claimedThisWeekKg = 1.4,
+  subscription,
+  onExplorePlansPress,
   onRechargePress,
 }) => {
+  const isActive = subscription && subscription.status === 'ACTIVE';
+
+  if (!isActive) {
+    return (
+      <View style={[styles.container, styles.emptyContainer]}>
+        <View style={styles.medalCircle}>
+          <MedalIcon size={18} color="#64748B" />
+        </View>
+
+        <View style={styles.infoColumn}>
+          <Text style={styles.emptyTitleText}>No Active Subscription</Text>
+          <Text style={styles.subtext}>
+            Choose a subscription to use subscription benefits.
+          </Text>
+        </View>
+
+        <TouchableOpacity style={styles.exploreButton} onPress={onExplorePlansPress} activeOpacity={0.7}>
+          <Text style={styles.exploreButtonText}>Explore Plans</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  const remainingKg = subscription.remainingWeeklyQtyKg ?? 0;
+  const resetDays = subscription.resetDays ?? 7;
+  const planTitle = subscription.planName || 'Active Plan';
+
   return (
     <View style={styles.container}>
-      {/* Left Icon Badge */}
       <View style={styles.medalCircle}>
-        <Text style={styles.medalIconText}>🎖️</Text>
+        <MedalIcon size={18} color="#D97706" />
       </View>
 
-      {/* Middle Info Column */}
       <View style={styles.infoColumn}>
         <Text style={styles.titleText}>
-          Gold Plan: <Text style={styles.boldSpan}>{remainingKgToday} kg remaining</Text> for today
+          {planTitle}: <Text style={styles.boldSpan}>{remainingKg} kg remaining</Text> for today
         </Text>
         <Text style={styles.subtext}>
-          Resets in {resetDays} days • {claimedThisWeekKg} kg claimed this week
+          Resets in {resetDays} days • Credit: ₹{subscription.creditBalance ?? 0}
         </Text>
       </View>
 
-      {/* Right Recharge Button */}
       <TouchableOpacity style={styles.rechargeButton} onPress={onRechargePress} activeOpacity={0.7}>
         <Text style={styles.rechargeButtonText}>Recharge</Text>
       </TouchableOpacity>
@@ -51,24 +84,24 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     marginHorizontal: 16,
     marginBottom: 12,
-
     shadowColor: '#0F172A',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.04,
     shadowRadius: 4,
     elevation: 2,
   },
+  emptyContainer: {
+    backgroundColor: '#F8FAFC',
+    borderColor: '#CBD5E1',
+  },
   medalCircle: {
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: '#FEF3C7', // Warm gold/yellow light background
+    backgroundColor: '#FEF3C7',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 10,
-  },
-  medalIconText: {
-    fontSize: 16,
   },
   infoColumn: {
     flex: 1,
@@ -78,6 +111,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: '#1E293B',
+  },
+  emptyTitleText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#334155',
   },
   boldSpan: {
     fontWeight: '800',
@@ -98,6 +136,17 @@ const styles = StyleSheet.create({
   },
   rechargeButtonText: {
     color: '#0284C7',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  exploreButton: {
+    backgroundColor: '#2463A8',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  exploreButtonText: {
+    color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '700',
   },

@@ -796,6 +796,7 @@ export default function App() {
       {currentTab === 'HOME' ? (
         <HomeScreen
           userProfile={profile}
+          token={token}
           currentTab={currentTab}
           onNavigate={(tab) => {
             setCurrentTab(tab as any);

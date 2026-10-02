@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, Image, TouchableOpacity, Dimensions } from 'react-native';
 import { FishProduct } from '../../data/mockFishData';
+import { HeartIcon, FlashIcon, StarIcon, ChevronRightIcon } from './HomeIcons';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -24,12 +25,12 @@ export const ProductCard: React.FC<ProductCardProps> = ({
     if (onFavoritePress) onFavoritePress(product);
   };
 
-  // Category badge color selector for Grid cards
   const getBadgeColor = (badge?: string) => {
     switch (badge) {
       case 'Freshwater':
         return { bg: '#1E40AF', text: '#FFFFFF' };
       case 'Marine':
+      case 'Marine Catch':
         return { bg: '#0284C7', text: '#FFFFFF' };
       case 'Shellfish':
         return { bg: '#D97706', text: '#FFFFFF' };
@@ -40,54 +41,41 @@ export const ProductCard: React.FC<ProductCardProps> = ({
     }
   };
 
-  const badgeStyle = getBadgeColor(product.categoryBadge);
+  const badgeStyle = getBadgeColor(product.categoryBadge || product.category);
 
   return (
     <View style={[styles.cardContainer, variant === 'grid' ? styles.gridCard : styles.horizontalCard]}>
       {/* Top Header Row overlay on image */}
       <View style={styles.imageOverlayHeader}>
-        {/* Sale / Category Badge */}
         {variant === 'offer' && product.saleBadge ? (
           <View style={[styles.saleBadge, product.saleBadge.includes('WEEKEND') ? styles.blueSaleBadge : styles.redSaleBadge]}>
             <Text style={styles.saleBadgeText}>{product.saleBadge}</Text>
           </View>
-        ) : variant === 'grid' && product.categoryBadge ? (
+        ) : (product.categoryBadge || product.category) ? (
           <View style={[styles.categoryPillBadge, { backgroundColor: badgeStyle.bg }]}>
-            <Text style={[styles.categoryPillText, { color: badgeStyle.text }]}>{product.categoryBadge}</Text>
+            <Text style={[styles.categoryPillText, { color: badgeStyle.text }]}>{product.categoryBadge || product.category}</Text>
           </View>
         ) : (
           <View />
         )}
 
-        {/* Wishlist Heart */}
         <TouchableOpacity style={styles.heartButton} onPress={toggleFavorite} activeOpacity={0.7}>
-          <Text style={[styles.heartIcon, isFavorite && styles.heartActive]}>
-            {isFavorite ? '♥' : '♡'}
-          </Text>
+          <HeartIcon size={12} active={isFavorite} />
         </TouchableOpacity>
       </View>
 
       {/* Product Image */}
       <View style={styles.imageWrapper}>
         <Image
-          source={{ uri: product.imageUrl }}
+          source={{ uri: product.imageUrl || 'https://images.unsplash.com/photo-1534483509719-3feaee7c30da?auto=format&fit=crop&w=400&q=80' }}
           style={styles.productImage}
           resizeMode="cover"
         />
       </View>
 
-      {/* Indicator Dots for Previous/Grid */}
-      {(variant === 'previous' || variant === 'grid') && (
-        <View style={styles.dotsRow}>
-          <View style={[styles.dot, styles.activeDot]} />
-          <View style={styles.dot} />
-          <View style={styles.dot} />
-        </View>
-      )}
-
       {/* Weight + ADD Button Row */}
       <View style={styles.weightAddRow}>
-        <Text style={styles.weightText}>{product.weight}</Text>
+        <Text style={styles.weightText}>{product.weight || '1000 g'}</Text>
         <TouchableOpacity style={styles.addButton} onPress={() => onAddPress && onAddPress(product)} activeOpacity={0.7}>
           <Text style={styles.addButtonText}>+ ADD</Text>
         </TouchableOpacity>
@@ -96,7 +84,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
       {/* Price Row */}
       <View style={styles.priceRow}>
         <Text style={styles.currentPriceText}>₹{product.price}</Text>
-        {product.originalPrice > product.price && (
+        {product.originalPrice && product.originalPrice > product.price && (
           <Text style={styles.originalPriceText}>₹{product.originalPrice}</Text>
         )}
       </View>
@@ -107,36 +95,33 @@ export const ProductCard: React.FC<ProductCardProps> = ({
       </Text>
 
       {/* Ratings & Savings Row */}
-      {variant === 'offer' ? (
-        <View style={styles.saveRatingRow}>
-          {product.saveAmount ? (
-            <View style={styles.saveBadge}>
-              <Text style={styles.saveBadgeText}>Save ₹{product.saveAmount}</Text>
-            </View>
-          ) : null}
-          <Text style={styles.ratingText}>★ {product.rating}</Text>
-        </View>
-      ) : (
+      {product.rating ? (
         <View style={styles.ratingReviewRow}>
-          <Text style={styles.starText}>★ {product.rating}</Text>
+          <StarIcon size={10} color="#F59E0B" />
+          <Text style={styles.starText}>{product.rating}</Text>
           {product.reviewCount && <Text style={styles.reviewCountText}>({product.reviewCount})</Text>}
         </View>
-      )}
+      ) : null}
 
-      {/* Delivery / Stock Info */}
-      <View style={styles.stockRow}>
-        <Text style={[styles.stockText, product.stockStatus.includes('left') ? styles.redStockText : styles.greenStockText]}>
-          ⚡ {product.deliveryTime ? `${product.deliveryTime} • ` : ''}{product.stockStatus}
-        </Text>
-      </View>
+      {/* Stock / Availability Info */}
+      {product.stockStatus ? (
+        <View style={styles.stockRow}>
+          <FlashIcon size={9} color={product.stockStatus.includes('left') ? '#EF4444' : '#10B981'} />
+          <Text style={[styles.stockText, product.stockStatus.includes('left') ? styles.redStockText : styles.greenStockText]}>
+            {product.deliveryTime ? ` ${product.deliveryTime} • ` : ' '}{product.stockStatus}
+          </Text>
+        </View>
+      ) : null}
 
-      {/* Bottom Category Link Tag */}
-      <View style={styles.bottomTagContainer}>
-        <Text style={styles.bottomTagText} numberOfLines={1}>
-          {product.categoryTag}
-        </Text>
-        <Text style={styles.arrowChar}>›</Text>
-      </View>
+      {/* Bottom Tag Container */}
+      {product.categoryTag ? (
+        <View style={styles.bottomTagContainer}>
+          <Text style={styles.bottomTagText} numberOfLines={1}>
+            {product.categoryTag}
+          </Text>
+          <ChevronRightIcon size={9} color="#94A3B8" />
+        </View>
+      ) : null}
     </View>
   );
 };
@@ -160,7 +145,6 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
   gridCard: {
-    // Exact 3-column calculation: (SCREEN_WIDTH - 32px outer padding - 16px gap) / 3
     width: (SCREEN_WIDTH - 48) / 3,
     marginBottom: 10,
   },
@@ -207,13 +191,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  heartIcon: {
-    fontSize: 12,
-    color: '#64748B',
-  },
-  heartActive: {
-    color: '#EF4444',
-  },
   imageWrapper: {
     width: '100%',
     height: 75,
@@ -226,22 +203,6 @@ const styles = StyleSheet.create({
   productImage: {
     width: '100%',
     height: '100%',
-  },
-  dotsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginVertical: 3,
-  },
-  dot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#CBD5E1',
-    marginHorizontal: 1.5,
-  },
-  activeDot: {
-    backgroundColor: '#334155',
   },
   weightAddRow: {
     flexDirection: 'row',
@@ -288,32 +249,8 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#1E293B',
     marginTop: 2,
-    height: 28, // Fixes 2 lines height alignment
+    height: 28,
     lineHeight: 14,
-  },
-  saveRatingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 4,
-  },
-  saveBadge: {
-    backgroundColor: '#ECFDF5',
-    borderColor: '#A7F3D0',
-    borderWidth: 0.5,
-    borderRadius: 3,
-    paddingHorizontal: 4,
-    paddingVertical: 1,
-  },
-  saveBadgeText: {
-    color: '#059669',
-    fontSize: 8,
-    fontWeight: '800',
-  },
-  ratingText: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: '#F59E0B',
   },
   ratingReviewRow: {
     flexDirection: 'row',
@@ -324,6 +261,7 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: '700',
     color: '#F59E0B',
+    marginLeft: 2,
     marginRight: 2,
   },
   reviewCountText: {
@@ -331,6 +269,8 @@ const styles = StyleSheet.create({
     color: '#94A3B8',
   },
   stockRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginTop: 2,
   },
   stockText: {
@@ -356,10 +296,5 @@ const styles = StyleSheet.create({
     fontSize: 8,
     color: '#64748B',
     flex: 1,
-  },
-  arrowChar: {
-    fontSize: 9,
-    color: '#94A3B8',
-    marginLeft: 2,
   },
 });

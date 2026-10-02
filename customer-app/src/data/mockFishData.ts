@@ -1,0 +1,208 @@
+export interface FishProduct {
+  id: string;
+  name: string;
+  weight: string;
+  price: number;
+  originalPrice: number;
+  saveAmount?: number;
+  rating: number;
+  reviewCount?: string;
+  deliveryTime?: string;
+  stockStatus: string;
+  categoryBadge?: string;
+  categoryTag: string;
+  saleBadge?: string;
+  imageUrl: string;
+  category: 'Freshwater' | 'Marine Catch' | 'Ready to Cook' | 'Shellfish' | 'All';
+  isOffer?: boolean;
+  isPreviouslyBought?: boolean;
+}
+
+export const MOCK_OFFER_FISH: FishProduct[] = [
+  {
+    id: 'off-1',
+    name: 'Rohu & Catla Fresh Steaks',
+    weight: '1000 g',
+    price: 280,
+    originalPrice: 350,
+    saveAmount: 70,
+    rating: 4.8,
+    stockStatus: 'Only 3 left',
+    saleBadge: '20% OFF',
+    categoryTag: 'Freshwater Deal',
+    category: 'Freshwater',
+    imageUrl: 'https://images.unsplash.com/photo-1534483509719-3feaee7c30da?auto=format&fit=crop&w=400&q=80',
+    isOffer: true,
+  },
+  {
+    id: 'off-2',
+    name: 'Jumbo Tiger Prawns Pack',
+    weight: '450 g',
+    price: 340,
+    originalPrice: 420,
+    saveAmount: 80,
+    rating: 4.9,
+    stockStatus: 'Only 2 left',
+    saleBadge: 'WEEKEND DROP',
+    categoryTag: 'Prawns Special',
+    category: 'Shellfish',
+    imageUrl: 'https://images.unsplash.com/photo-1565680018434-b513d5e5fd47?auto=format&fit=crop&w=400&q=80',
+    isOffer: true,
+  },
+  {
+    id: 'off-3',
+    name: 'Silver Pomfret Whole',
+    weight: '500 g',
+    price: 520,
+    originalPrice: 600,
+    saveAmount: 80,
+    rating: 4.9,
+    stockStatus: 'In stock',
+    saleBadge: 'MEGA OFFER',
+    categoryTag: 'Marine Special',
+    category: 'Marine Catch',
+    imageUrl: 'https://images.unsplash.com/photo-1519708227418-c8fd9a32b7a2?auto=format&fit=crop&w=400&q=80',
+    isOffer: true,
+  },
+];
+
+export const MOCK_PREVIOUSLY_BOUGHT_FISH: FishProduct[] = [
+  {
+    id: 'prev-1',
+    name: 'Fresh Rohu Carp (Curry Cut Steaks)',
+    weight: '500 g',
+    price: 180,
+    originalPrice: 220,
+    rating: 4.8,
+    reviewCount: '1,323',
+    deliveryTime: '8 mins',
+    stockStatus: '3 left',
+    categoryTag: 'All Freshwater',
+    category: 'Freshwater',
+    imageUrl: 'https://images.unsplash.com/photo-1534483509719-3feaee7c30da?auto=format&fit=crop&w=400&q=80',
+    isPreviouslyBought: true,
+  },
+  {
+    id: 'prev-2',
+    name: 'Jumbo Tiger Prawns (Cleaned & Deveined)',
+    weight: '450 g',
+    price: 380,
+    originalPrice: 450,
+    rating: 4.9,
+    reviewCount: '2,840',
+    deliveryTime: '8 mins',
+    stockStatus: '2 left',
+    categoryTag: 'Prawns & Seafood',
+    category: 'Shellfish',
+    imageUrl: 'https://images.unsplash.com/photo-1565680018434-b513d5e5fd47?auto=format&fit=crop&w=400&q=80',
+    isPreviouslyBought: true,
+  },
+  {
+    id: 'prev-3',
+    name: 'Silver Pomfret (Curry Cut)',
+    weight: '500 g',
+    price: 340,
+    originalPrice: 390,
+    rating: 4.9,
+    reviewCount: '1,180',
+    deliveryTime: '8 mins',
+    stockStatus: 'In stock',
+    categoryTag: 'Marine Star',
+    category: 'Marine Catch',
+    imageUrl: 'https://images.unsplash.com/photo-1519708227418-c8fd9a32b7a2?auto=format&fit=crop&w=400&q=80',
+    isPreviouslyBought: true,
+  },
+];
+
+export const MOCK_AVAILABLE_FISH: FishProduct[] = [
+  {
+    id: 'grid-1',
+    name: 'Fresh Rohu (Curry Cut)',
+    weight: '500 g',
+    price: 280,
+    originalPrice: 340,
+    rating: 4.8,
+    reviewCount: '1,420',
+    deliveryTime: '8 mins',
+    stockStatus: 'In stock',
+    categoryBadge: 'Freshwater',
+    categoryTag: 'Freshwater',
+    category: 'Freshwater',
+    imageUrl: 'https://images.unsplash.com/photo-1534483509719-3feaee7c30da?auto=format&fit=crop&w=400&q=80',
+  },
+  {
+    id: 'grid-2',
+    name: 'Silver Pomfret (Curry Cut)',
+    weight: '500 g',
+    price: 640,
+    originalPrice: 720,
+    rating: 4.9,
+    reviewCount: '980',
+    deliveryTime: '8 mins',
+    stockStatus: 'In stock',
+    categoryBadge: 'Marine',
+    categoryTag: 'Marine Star',
+    category: 'Marine Catch',
+    imageUrl: 'https://images.unsplash.com/photo-1519708227418-c8fd9a32b7a2?auto=format&fit=crop&w=400&q=80',
+  },
+  {
+    id: 'grid-3',
+    name: 'Deveined Sea Prawns',
+    weight: '450 g',
+    price: 380,
+    originalPrice: 450,
+    rating: 4.9,
+    reviewCount: '1,840',
+    deliveryTime: '8 mins',
+    stockStatus: '2 left',
+    categoryBadge: 'Shellfish',
+    categoryTag: 'Shellfish',
+    category: 'Shellfish',
+    imageUrl: 'https://images.unsplash.com/photo-1565680018434-b513d5e5fd47?auto=format&fit=crop&w=400&q=80',
+  },
+  {
+    id: 'grid-4',
+    name: 'Catla Fish Curry Cut',
+    weight: '1000 g',
+    price: 310,
+    originalPrice: 380,
+    rating: 4.7,
+    reviewCount: '740',
+    deliveryTime: '8 mins',
+    stockStatus: 'In stock',
+    categoryBadge: 'Freshwater',
+    categoryTag: 'Freshwater',
+    category: 'Freshwater',
+    imageUrl: 'https://images.unsplash.com/photo-1534483509719-3feaee7c30da?auto=format&fit=crop&w=400&q=80',
+  },
+  {
+    id: 'grid-5',
+    name: 'Murrel Korameenu Cut',
+    weight: '1000 g',
+    price: 650,
+    originalPrice: 750,
+    rating: 4.9,
+    reviewCount: '1,120',
+    deliveryTime: '8 mins',
+    stockStatus: 'In stock',
+    categoryBadge: 'Live Pond',
+    categoryTag: 'Freshwater',
+    category: 'Freshwater',
+    imageUrl: 'https://images.unsplash.com/photo-1534483509719-3feaee7c30da?auto=format&fit=crop&w=400&q=80',
+  },
+  {
+    id: 'grid-6',
+    name: 'Tiger Prawns (Retail Pack)',
+    weight: '450 g',
+    price: 340,
+    originalPrice: 420,
+    rating: 4.9,
+    reviewCount: '2,840',
+    deliveryTime: '8 mins',
+    stockStatus: '3 left',
+    categoryBadge: 'Shellfish',
+    categoryTag: 'Prawns & Seafood',
+    category: 'Shellfish',
+    imageUrl: 'https://images.unsplash.com/photo-1565680018434-b513d5e5fd47?auto=format&fit=crop&w=400&q=80',
+  },
+];

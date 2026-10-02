@@ -15,6 +15,7 @@ import { getApiBaseUrl } from './src/config/apiConfig';
 import { QRCodeView } from './src/components/QRCodeView';
 import { PaymentServiceAdapter, PaymentState } from './src/services/paymentService';
 import { AuthStorageService } from './src/services/authStorage';
+import { HomeScreen } from './src/screens/HomeScreen';
 
 export type AuthState = 'AUTHENTICATION_CHECKING' | 'AUTHENTICATION_REQUIRED' | 'AUTHENTICATED';
 
@@ -489,6 +490,10 @@ export default function App() {
     }
     setLoading(true);
     setNetworkError(null);
+
+    console.log(`CUSTOMER_APP_API_BASE_URL=${API_BASE}`);
+    console.log(`CUSTOMER_APP_OTP_URL=${API_BASE}/customer/auth/send-otp`);
+
     try {
       const res = await fetch(`${API_BASE}/customer/auth/send-otp`, {
         method: 'POST',
@@ -787,57 +792,22 @@ export default function App() {
         </View>
       </Modal>
 
-      <ScrollView style={styles.content}>
-        {/* HOME TAB */}
-        {currentTab === 'HOME' && (
-          <View>
-            <Text style={styles.sectionHeader}>Customer Hub</Text>
-
-            {/* Profile Greeting Card */}
-            <View style={[styles.card, { backgroundColor: '#00A896', marginBottom: 16 }]}>
-              <Text style={styles.cardTitle}>👋 Hello {profile?.name || 'Valued Customer'}</Text>
-              <Text style={{ color: '#fff', fontSize: 14 }}>Mobile: {profile?.mobileNumber || mobileNumber}</Text>
-              {profile?.area && <Text style={{ color: '#E0F2FE', fontSize: 13 }}>Locality: {profile.area}</Text>}
-            </View>
-
-            {/* Quick Action Tiles */}
-            <View style={styles.tileContainer}>
-              <TouchableOpacity style={styles.tile} onPress={() => { setCurrentTab('CATALOG'); fetchCatalogue(); }}>
-                <Text style={styles.tileText}>🐟 Browse Fish</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.tile} onPress={() => { setCurrentTab('BOOKINGS'); fetchBookingHistory(); }}>
-                <Text style={styles.tileText}>📦 My Bookings</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.tile} onPress={() => setCurrentTab('SCAN_BILL')}>
-                <Text style={styles.tileText}>📷 Scan Bill</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.tile} onPress={() => { setCurrentTab('SUBSCRIPTION'); fetchSubscriptionInfo(); }}>
-                <Text style={styles.tileText}>💳 Subscriptions</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.tile} onPress={() => { setCurrentTab('GPS_MAP'); fetchLiveGPS(); }}>
-                <Text style={styles.tileText}>🚚 Live Truck GPS</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.tile} onPress={() => setCurrentTab('PROFILE')}>
-                <Text style={styles.tileText}>👤 My Profile</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Latest Active Booking Widget */}
-            {latestBooking && (
-              <View style={[styles.section, { marginTop: 16 }]}>
-                <Text style={styles.sectionHeader}>Active Booking Summary</Text>
-                <Text style={styles.detailText}>Code: <Text style={{ fontWeight: '800' }}>{latestBooking.bookingCode}</Text></Text>
-                <Text style={styles.detailText}>Status: <Text style={{ fontWeight: '800', color: latestBooking.status === 'CONFIRMED' ? '#065F46' : '#92400E' }}>{latestBooking.status}</Text></Text>
-                <TouchableOpacity
-                  style={[styles.button, { marginTop: 8, backgroundColor: '#0F4C81' }]}
-                  onPress={() => setCurrentTab('BOOKING_CONFIRM')}
-                >
-                  <Text style={styles.buttonText}>View Ticket & QR Code</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-          </View>
-        )}
+      {/* HOME TAB */}
+      {currentTab === 'HOME' ? (
+        <HomeScreen
+          userProfile={profile}
+          currentTab={currentTab}
+          onNavigate={(tab) => {
+            setCurrentTab(tab as any);
+            if (tab === 'CATALOG') fetchCatalogue();
+            if (tab === 'BOOKINGS') fetchBookingHistory();
+            if (tab === 'SUBSCRIPTION') fetchSubscriptionInfo();
+            if (tab === 'GPS_MAP') fetchLiveGPS();
+          }}
+        />
+      ) : (
+        <>
+          <ScrollView style={styles.content}>
 
         {/* CATALOGUE TAB */}
         {currentTab === 'CATALOG' && (
@@ -1247,7 +1217,7 @@ export default function App() {
       {/* Bottom Navigation Bar */}
       <View style={styles.navBar}>
         <TouchableOpacity style={styles.navItem} onPress={() => setCurrentTab('HOME')}>
-          <Text style={[styles.navText, currentTab === 'HOME' && styles.navTextActive]}>Home</Text>
+          <Text style={[styles.navText, (currentTab as string) === 'HOME' && styles.navTextActive]}>Home</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.navItem} onPress={() => { setCurrentTab('CATALOG'); fetchCatalogue(); }}>
           <Text style={[styles.navText, currentTab === 'CATALOG' && styles.navTextActive]}>Catalog</Text>
@@ -1268,6 +1238,8 @@ export default function App() {
           <Text style={[styles.navText, currentTab === 'PROFILE' && styles.navTextActive]}>Profile</Text>
         </TouchableOpacity>
       </View>
+        </>
+      )}
     </SafeAreaView>
   );
 }

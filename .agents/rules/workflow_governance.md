@@ -1,8 +1,8 @@
-# PondFish Agent Workspace Rules & Workflow Governance
+# Rule: PondFish Documentation-First Workflow Governance
 
-## Mandatory Rules for All AI Coding Agents
+All AI coding agents working in the PondFish repository MUST strictly observe the following 19 governance rules before, during, and after executing any coding task.
 
-### 1. DOCUMENTATION-FIRST GATE
+## 1. DOCUMENTATION-FIRST GATE
 Every implementation task MUST begin by identifying and reading the relevant PondFish documentation before modifying code.
 For Customer React Native App tasks, the minimum required baseline documentation set is:
 1. `Documentation/PondFish_Master_PRD_v2.md`
@@ -17,7 +17,7 @@ For Customer React Native App tasks, the minimum required baseline documentation
 
 The agent MUST NOT start implementation until these documents have been inspected for the requested task.
 
-### 2. TASK-SPECIFIC DOCUMENTATION
+## 2. TASK-SPECIFIC DOCUMENTATION
 Do not blindly read unrelated documentation and then wander into unrelated work.
 After reading the baseline documentation, identify the exact documents relevant to the current task.
 Examples:
@@ -27,7 +27,7 @@ Examples:
 
 Only use additional documents when the task actually depends on them.
 
-### 3. DOCUMENTATION COMPLIANCE CHECK
+## 3. DOCUMENTATION COMPLIANCE CHECK
 Before coding, the agent MUST create an internal implementation checklist containing:
 A. Relevant requirements
 B. Required screens/components
@@ -44,7 +44,7 @@ If a requested implementation conflicts with documentation: DO NOT silently choo
 - Relevant section
 - Proposed resolution
 
-### 4. SCOPE LOCK
+## 4. SCOPE LOCK
 Every task must have a strict scope.
 Example for "Rebuild Customer Home UI":
 - **ALLOWED:** Customer Home screen, Home components, Home styling, Home navigation presentation, temporary UI-only mock data if explicitly approved.
@@ -52,7 +52,7 @@ Example for "Rebuild Customer Home UI":
 
 The agent MUST NOT expand the task automatically. If an unrelated problem is discovered, REPORT IT. Do not fix it unless the user explicitly requests it.
 
-### 5. DESIGN SOURCE-OF-TRUTH RULE
+## 5. DESIGN SOURCE-OF-TRUTH RULE
 For UI work, the source-of-truth order is:
 1. Figma / design reference explicitly provided for the task
 2. PondFish Complete Design System (`Documentation/PondFish_Complete_Design_System_UI_UX_Specification.md`)
@@ -63,7 +63,7 @@ For UI work, the source-of-truth order is:
 
 Existing code is NOT the design authority. If existing UI differs from the approved design, do not preserve the incorrect design merely because it already exists. Do not invent a new visual style.
 
-### 6. NO GENERIC UI RULE
+## 6. NO GENERIC UI RULE
 PondFish must NOT be implemented using generic placeholder UI when a detailed specification exists.
 Do not replace specified designs with:
 - generic cards
@@ -79,7 +79,7 @@ Do not replace specified designs with:
 
 Every visual decision must have a source in provided Figma, Design System, or Page-by-Page UI Specification, or must be explicitly marked as an implementation detail.
 
-### 7. NO BUSINESS-RULE INVENTION
+## 7. NO BUSINESS-RULE INVENTION
 Never invent:
 - prices
 - subscription values
@@ -99,7 +99,7 @@ The backend is authoritative for business data. Mock data may only be used when:
 3. the mock data does not become production business logic,
 4. it can later be replaced by the documented API.
 
-### 8. CUSTOMER APP PLATFORM RULE
+## 8. CUSTOMER APP PLATFORM RULE
 The Customer Portal is a NATIVE REACT NATIVE MOBILE APPLICATION.
 Do not implement Customer App screens as web pages. Use:
 - React Native components
@@ -112,7 +112,7 @@ Do not implement Customer App screens as web pages. Use:
 
 The Customer App must not be treated as a responsive website.
 
-### 9. STATE COMPLETENESS RULE
+## 9. STATE COMPLETENESS RULE
 For every data-driven screen, inspect the documentation for:
 - initial state
 - loading
@@ -130,7 +130,7 @@ For every data-driven screen, inspect the documentation for:
 
 Do not implement only the happy path.
 
-### 10. REUSE BEFORE CREATE
+## 10. REUSE BEFORE CREATE
 Before creating a component:
 1. Search the existing codebase.
 2. Determine whether an equivalent component already exists.
@@ -140,7 +140,7 @@ Before creating a component:
 
 Do not create duplicate components with slightly different names.
 
-### 11. MONOLITH PREVENTION
+## 11. MONOLITH PREVENTION
 Do not create or expand giant `App.tsx` files.
 Separate:
 - screens
@@ -153,7 +153,7 @@ Separate:
 
 Business logic must not be duplicated inside visual components.
 
-### 12. VALIDATION BEFORE COMMIT
+## 12. VALIDATION BEFORE COMMIT
 Before any commit:
 1. Run relevant typecheck.
 2. Run relevant tests.
@@ -167,7 +167,7 @@ Before any commit:
 
 A passing TypeScript build alone is NOT sufficient.
 
-### 13. UI TASK VALIDATION
+## 13. UI TASK VALIDATION
 For UI tasks the agent must explicitly compare the implementation against:
 - Figma/reference screenshots
 - design tokens
@@ -183,21 +183,21 @@ For UI tasks the agent must explicitly compare the implementation against:
 
 The agent must report any remaining visual differences. Do not claim "matches Figma" merely because the screen builds successfully.
 
-### 14. DOCUMENTATION TRACEABILITY
+## 14. DOCUMENTATION TRACEABILITY
 For every completed implementation task, report:
 - **Documentation consulted:** filename, relevant section
 - **Implementation mapping:** requirement, implementation file, component/function
 - **Validation:** test, build, runtime verification
 - **Unimplemented documented requirements:** list them explicitly
 
-### 15. NO TASK DIVERSION
+## 15. NO TASK DIVERSION
 The agent must continuously maintain the current task objective.
 Before making a change, ask internally: "Does this directly contribute to the requested task?"
 If NO: Do not implement it.
 If it is required as a dependency: Explain why it is required before modifying it.
 Do not turn one task into a general cleanup/refactoring/security/migration project.
 
-### 16. CHANGE BUDGET
+## 16. CHANGE BUDGET
 Before implementation, estimate the affected files.
 If the task unexpectedly expands beyond the expected scope: STOP.
 Report:
@@ -206,7 +206,7 @@ Report:
 - reason for expansion
 Do not continue silently.
 
-### 17. GIT RULE
+## 17. GIT RULE
 Automatic Git Commit & Push to `main`:
 Whenever any code changes, edits, bug fixes, refactors, UI updates, or documentation files are modified/created in this repository, the agent MUST perform a `git commit` and `git push origin main` before completing the turn.
 
@@ -227,7 +227,7 @@ Before committing:
 
 Then commit only intended files with a clear, concise commit message (e.g. `feat(customer-app): rebuild home screen UI according to specification and design`), and push only the verified commit to `main`.
 
-### 18. FINAL RESPONSE FORMAT
+## 18. FINAL RESPONSE FORMAT
 Every implementation task must finish with:
 
 ```
@@ -271,7 +271,7 @@ GIT:
 
 Do not claim completion if any required verification failed.
 
-### 19. CURRENT PROJECT PRIORITY
+## 19. CURRENT PROJECT PRIORITY
 The current project priority is: **PONDFISH CUSTOMER APP**
 Current active task: **CUSTOMER APP HOME SCREEN UI REBUILD**
 
